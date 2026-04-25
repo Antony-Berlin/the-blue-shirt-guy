@@ -23,7 +23,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-from envs.gen_env.models import GenEnvAction
+from envs.gen_env.models import GenEnvAction, GenEnvToolAction
 from envs.gen_env.server.gen_env_environment import GenesisEnvironment
 from agent.tool_executor import ToolExecutor
 
@@ -93,8 +93,11 @@ def _make_user_prompt(description: str, starter_code: str, tool_actions: set) ->
 
 
 def _extract_json(text: str) -> Optional[dict]:
-    # Strip markdown code fences if present
+    # Strip markdown code fences
     text = re.sub(r"```(?:json)?\s*", "", text).strip()
+    # Replace triple-quoted strings with single-quoted equivalents so json.loads works
+    text = re.sub(r'"""(.*?)"""', lambda m: json.dumps(m.group(1)), text, flags=re.DOTALL)
+    text = re.sub(r"'''(.*?)'''", lambda m: json.dumps(m.group(1)), text, flags=re.DOTALL)
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
@@ -145,10 +148,10 @@ def run_tool_loop(
 ) -> tuple:
     """Run the iterative tool-use loop; return (final_code, step_log).
 
-    step_log is a list of dicts: {step, action, reward, done, error}
-    — one entry per tool call plus the final submit action.
-    If env is provided, each tool call is graded immediately via
-    env.grade_tool_call() and the grade is fed back to the agent as context.
+    Each tool call is sent to env.step_tool() as a separate env step,
+    graded immediately, and the grade fed back to the agent.
+    step_log: [{step, action, reward, done, error}] — one entry per tool call.
+    The final submit step is appended by main() after env.step().
     """
     tool_actions = _get_tool_actions()
     messages: List[Dict[str, Any]] = [
@@ -185,7 +188,6 @@ def run_tool_loop(
 
         if action_name == "submit":
             final_code = action.get("code", starter_code)
-            # Submit step logged by main() after env.step() returns the real reward
             break
 
         elif action_name in tool_actions or action_name == "call_tool":
@@ -200,20 +202,32 @@ def run_tool_loop(
                 messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {sorted(tool_actions)}"})
                 continue
 
+            # Execute tool locally
             tool_result = executor.call(tool_name, **args)
+            log_entry = executor.get_log()[-1]
             step_num += 1
 
+            # Send this single tool call to the env as its own step
             if env is not None:
-                entry = executor.get_log()[-1]
-                grade = env.grade_tool_call(entry)
+                tool_action = GenEnvToolAction(
+                    tool=tool_name,
+                    args=log_entry["args"],
+                    result=log_entry["result"],
+                    error=log_entry.get("error"),
+                )
+                tool_obs = env.step_tool(tool_action)
+                grade = tool_obs.reward
+                # Sync the grade back into the executor's log entry
+                log_entry["graded"] = True
+                log_entry["grade"] = grade
                 grade_hint = f"\n[Tool quality score: {grade:.2f}/1.0]"
-                error_val = entry.get("error")
+                error_str = log_entry.get("error")
                 step_log.append({
                     "step": step_num,
-                    "action": f"{tool_name}({', '.join(f'{k}={str(v)[:40]}' for k,v in args.items())})",
+                    "action": f"{tool_name}({', '.join(f'{k}={str(v)[:40]!r}' for k, v in args.items())})",
                     "reward": grade,
                     "done": False,
-                    "error": str(error_val)[:80] if error_val else None,
+                    "error": str(error_str)[:80] if error_str else None,
                 })
             else:
                 grade_hint = ""

@@ -20,12 +20,12 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import Action
 
 try:
-    from ..models import GenEnvObservation, GenEnvState, GenEnvAction
+    from ..models import GenEnvObservation, GenEnvState, GenEnvAction, GenEnvToolAction
     from .rubric import score_reasoning
     from .tool_registry import ToolRegistry
     from .tool_graders import GraderRouter
 except ImportError:
-    from models import GenEnvObservation, GenEnvState, GenEnvAction
+    from models import GenEnvObservation, GenEnvState, GenEnvAction, GenEnvToolAction
     from server.rubric import score_reasoning
     from server.tool_registry import ToolRegistry
     from server.tool_graders import GraderRouter
@@ -123,25 +123,31 @@ class GenesisEnvironment(Environment):
         self._tool_log: list = []
 
     # ------------------------------------------------------------------
-    # Per-tool-call grading (called after each individual tool invocation)
+    # Per-tool-call step (mid-episode)
     # ------------------------------------------------------------------
 
-    def grade_tool_call(self, entry: dict) -> float:
-        """Grade a single tool call entry immediately and store the result in-place.
+    def step_tool(self, action: GenEnvToolAction) -> GenEnvObservation:
+        """Process one tool call as an individual env step.
 
-        Marks entry['graded'] = True and entry['grade'] = score so that step()
-        skips it during final evaluation (no double-grading).
-
-        Also appends the entry to the session's tool log so state is consistent
-        whether the agent submits mid-episode or not.
-
-        Returns the grade float [0.0, 1.0].
+        Grades the single tool call entry, appends it to the session log,
+        updates the EMA registry, and returns a partial observation with
+        done=False and reward=tool_grade.
         """
+        task = self._current_task or _fallback_task()
+
+        entry: dict = {
+            "tool": action.tool,
+            "args": action.args,
+            "result": action.result,
+            "error": action.error,
+        }
+
+        # Grade with sequence-level context from existing session log
         grade = self._grader.grade(entry)
         entry["graded"] = True
         entry["grade"] = grade
 
-        # Apply sequence-level adjustments against entries already in the log
+        # Apply sequence-level adjustments (redundancy, error propagation)
         from .tool_graders import RedundancyGrader, ErrorPropagationGrader
         window = self._tool_log[-3:] + [entry]
         r_adj = RedundancyGrader().grade_log(window)[-1]
@@ -150,7 +156,28 @@ class GenesisEnvironment(Environment):
         entry["grade"] = adjusted
 
         self._tool_log.append(entry)
-        return adjusted
+        self._step_count += 1
+
+        # Update EMA for this tool with its individual grade
+        self._registry.update(
+            episode_reward=adjusted,
+            tools_used=[action.tool],
+            entry_grades={action.tool: adjusted},
+        )
+
+        return GenEnvObservation(
+            task_id=task["id"],
+            task_description=task["description"],
+            starter_code=task.get("starter_code", ""),
+            difficulty=task.get("difficulty", "easy"),
+            tests_passed=0,
+            tests_total=len(task.get("tests", [])),
+            reward=adjusted,
+            done=False,
+            nl_feedback="",
+            tool_weights=self._registry.snapshot(),
+            tool_grades=[e.get("grade", 0.0) for e in self._tool_log],
+        )
 
     # ------------------------------------------------------------------
     # Gym-style API
@@ -203,17 +230,13 @@ class GenesisEnvironment(Environment):
 
         self._step_count += 1
 
-        # Merge: prefer pre-graded entries already in self._tool_log (built by
-        # grade_tool_call()), but fall back to action.tool_usage_log when env
-        # is used without per-call grading (e.g. HTTP mode or tests).
+        # Use the session's incrementally built log if available (step_tool() was used),
+        # otherwise fall back to the log carried in the action (HTTP / test usage).
         if self._tool_log:
-            # Append any entries from the action that aren't already in the log
-            logged_ids = {id(e) for e in self._tool_log}
-            for e in action.tool_usage_log:
-                if id(e) not in logged_ids:
-                    self._tool_log.append(e)
+            full_log = self._tool_log
         else:
-            self._tool_log = list(action.tool_usage_log)
+            full_log = list(action.tool_usage_log)
+            self._tool_log = full_log
 
         task = self._current_task or _fallback_task()
         tests = task.get("tests", [])
@@ -221,23 +244,19 @@ class GenesisEnvironment(Environment):
         passed, total = _run_tests_against_code(action.code, tests)
         pass_score = passed / total if total > 0 else 0.0
 
-        # Per-tool-call grades (skips already-graded entries)
-        tool_grades = self._grader.grade_log(action.tool_usage_log)
+        # Grade any entries not already graded by step_tool() (HTTP / test fallback)
+        tool_grades = self._grader.grade_log(full_log)
         tool_usage_score = sum(tool_grades) / len(tool_grades) if tool_grades else 0.0
 
         reasoning_score, nl_feedback = score_reasoning(
-            task["description"], action.code, self._tool_log
+            task["description"], action.code, full_log
         )
 
         reward = pass_score * 0.6 + tool_usage_score * 0.2 + reasoning_score * 0.2
 
-        # Attribute reward to tools using per-entry grades
-        tools_used = [entry.get("tool", "") for entry in self._tool_log if entry.get("tool")]
-        entry_grades = {
-            entry.get("tool", ""): entry.get("grade", 0.0)
-            for entry in self._tool_log
-            if entry.get("tool")
-        }
+        # Final EMA update with episode-level reward signal
+        tools_used = [e.get("tool", "") for e in full_log if e.get("tool")]
+        entry_grades = {e.get("tool", ""): e.get("grade", 0.0) for e in full_log if e.get("tool")}
         self._registry.update(reward, tools_used, entry_grades)
 
         return GenEnvObservation(
