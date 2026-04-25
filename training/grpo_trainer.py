@@ -237,7 +237,7 @@ class GRPOTrainer:
             max_grad_norm=self.cfg.max_grad_norm,
             max_completion_length=self.cfg.max_new_tokens,
             temperature=self.cfg.temperature,
-            per_device_train_batch_size=1,
+            per_device_train_batch_size=self.cfg.group_size,
             gradient_accumulation_steps=1,
             bf16=True,
             logging_steps=1,
