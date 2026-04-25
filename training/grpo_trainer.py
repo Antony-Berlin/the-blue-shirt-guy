@@ -198,7 +198,7 @@ class GRPOTrainer:
             token=hf_token,
             trust_remote_code=True,
             quantization_config=bnb_cfg,
-            torch_dtype=None if use_4bit else torch.float16,
+            dtype=None if use_4bit else torch.float16,  # use dtype not torch_dtype
             device_map="auto",
         )
         model.resize_token_embeddings(len(self.tokenizer))
@@ -222,6 +222,12 @@ class GRPOTrainer:
             for name, param in model.named_parameters():
                 if param.requires_grad:
                     param.data = param.data.to(torch.float16)
+
+        # Final safety cast: ensure no bf16 tensors remain (Qwen defaults to bf16)
+        # 4-bit base weights are uint8 (skip), everything else → float16
+        for name, param in model.named_parameters():
+            if param.dtype == torch.bfloat16:
+                param.data = param.data.to(torch.float16)
 
         self.model = model
         print("[GRPO] Model ready.", flush=True)
