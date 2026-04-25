@@ -1,8 +1,8 @@
 spec_version: 1
-name: codeforge_env
+name: gen_env
 type: mcp
 description: >
-  CodeForge Self-Programmer — a coding agent that solves programming tasks and
+  Genesis Environment — a coding agent that solves programming tasks and
   improves its own MCP tools through reinforcement learning. The environment
   exposes 5 evolvable tools, scores agent performance with a dual reward
   (pass@1 + reasoning quality), and tracks per-tool EMA weights used to train

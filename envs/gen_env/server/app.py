@@ -1,4 +1,4 @@
-"""FastAPI application for the CodeForge environment.
+"""FastAPI application for the Genesis environment.
 
 The server is a pure evaluator — no tools, no MCP endpoints.
 Agents call POST /reset and POST /step via plain HTTP.
@@ -10,18 +10,18 @@ except Exception as e:
     raise ImportError("openenv-core is required") from e
 
 try:
-    from ..models import CodeForgeObservation, SubmitCodeAction
-    from .codeforge_environment import CodeForgeEnvironment
+    from ..models import GenEnvObservation, GenEnvAction
+    from .gen_env_environment import GenesisEnvironment
 except (ImportError, ModuleNotFoundError):
-    from models import CodeForgeObservation, SubmitCodeAction
-    from server.codeforge_environment import CodeForgeEnvironment
+    from models import GenEnvObservation, GenEnvAction
+    from server.gen_env_environment import GenesisEnvironment
 
 
 app = create_app(
-    CodeForgeEnvironment,
-    SubmitCodeAction,
-    CodeForgeObservation,
-    env_name="codeforge_env",
+    GenesisEnvironment,
+    GenEnvAction,
+    GenEnvObservation,
+    env_name="gen_env",
     max_concurrent_envs=4,
 )
 

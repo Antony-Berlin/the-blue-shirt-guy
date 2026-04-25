@@ -1,4 +1,4 @@
-"""CodeForge environment client — connects to the running server via WebSocket."""
+"""Genesis environment client — connects to the running server via WebSocket."""
 
 from typing import Dict, List, Any
 
@@ -7,21 +7,21 @@ from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
 try:
-    from .models import CodeForgeObservation, SubmitCodeAction, CodeForgeState
+    from .models import GenEnvObservation, GenEnvAction, GenEnvState
 except ImportError:
-    from models import CodeForgeObservation, SubmitCodeAction, CodeForgeState
+    from models import GenEnvObservation, GenEnvAction, GenEnvState
 
 
-class CodeForgeEnv(EnvClient[SubmitCodeAction, CodeForgeObservation, CodeForgeState]):
-    """Async client for the CodeForge environment server.
+class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
+    """Async client for the Genesis environment server.
 
     Example::
 
-        async with CodeForgeEnv(base_url="http://localhost:7860") as env:
+        async with GenEnvClient(base_url="http://localhost:7860") as env:
             result = await env.reset(seed=42)
             print(result.observation.task_description)
 
-            action = SubmitCodeAction(
+            action = GenEnvAction(
                 code="def most_frequent(lst): ...",
                 task_id=result.observation.task_id,
                 tool_usage_log=[],
@@ -30,16 +30,16 @@ class CodeForgeEnv(EnvClient[SubmitCodeAction, CodeForgeObservation, CodeForgeSt
             print(result.reward)  # composite float 0-1
     """
 
-    def _step_payload(self, action: SubmitCodeAction) -> Dict[str, Any]:
+    def _step_payload(self, action: GenEnvAction) -> Dict[str, Any]:
         return {
             "code": action.code,
             "task_id": action.task_id,
             "tool_usage_log": action.tool_usage_log,
         }
 
-    def _parse_result(self, payload: Dict[str, Any]) -> StepResult[CodeForgeObservation]:
+    def _parse_result(self, payload: Dict[str, Any]) -> StepResult[GenEnvObservation]:
         obs_data = payload.get("observation", payload)
-        observation = CodeForgeObservation(
+        observation = GenEnvObservation(
             task_id=obs_data.get("task_id", ""),
             task_description=obs_data.get("task_description", ""),
             starter_code=obs_data.get("starter_code", ""),
@@ -58,8 +58,8 @@ class CodeForgeEnv(EnvClient[SubmitCodeAction, CodeForgeObservation, CodeForgeSt
             done=payload.get("done", False),
         )
 
-    def _parse_state(self, payload: Dict[str, Any]) -> CodeForgeState:
-        return CodeForgeState(
+    def _parse_state(self, payload: Dict[str, Any]) -> GenEnvState:
+        return GenEnvState(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),
             task_id=payload.get("task_id"),

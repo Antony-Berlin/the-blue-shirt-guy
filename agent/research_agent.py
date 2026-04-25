@@ -16,7 +16,7 @@ import re
 import textwrap
 from typing import Any, Dict, List, Optional
 
-from agent.env_http_client import CodeForgeHTTPClient
+from agent.env_http_client import GenEnvHTTPClient
 from agent.tool_executor import ToolExecutor
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ class ResearchAgent:
         model_name: str = "Qwen/Qwen2.5-7B-Instruct",
         max_steps: int = 8,
     ) -> None:
-        self.client = CodeForgeHTTPClient(env_url)
+        self.client = GenEnvHTTPClient(env_url)
         self.executor = ToolExecutor()
         self.mode = mode
         self.model_name = model_name
@@ -223,7 +223,7 @@ class ResearchAgent:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run one CodeForge episode")
+    parser = argparse.ArgumentParser(description="Run one Genesis episode")
     parser.add_argument("--env-url", default="http://localhost:7860")
     parser.add_argument("--mode", choices=["heuristic", "llm"], default="heuristic")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")

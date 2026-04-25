@@ -1,11 +1,11 @@
-"""Data models for the CodeForge environment."""
+"""Data models for the Genesis environment."""
 
 from typing import Any, Dict, List, Optional
 from pydantic import Field
 from openenv.core.env_server.types import Action, Observation, State
 
 
-class SubmitCodeAction(Action):
+class GenEnvAction(Action):
     """Agent submits a final code solution for evaluation."""
 
     code: str = Field(..., description="The Python code solution to evaluate")
@@ -16,7 +16,7 @@ class SubmitCodeAction(Action):
     )
 
 
-class CodeForgeObservation(Observation):
+class GenEnvObservation(Observation):
     """Observation returned after each episode step."""
 
     task_id: str = Field(default="", description="Current task ID")
@@ -35,7 +35,7 @@ class CodeForgeObservation(Observation):
     )
 
 
-class CodeForgeState(State):
+class GenEnvState(State):
     """Internal environment state for the current episode."""
 
     task_id: Optional[str] = Field(default=None, description="Active task ID")

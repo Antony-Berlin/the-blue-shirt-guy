@@ -1,7 +1,7 @@
 [project]
-name = "codeforge-env"
+name = "gen-env"
 version = "0.1.0"
-description = "CodeForge Self-Programmer environment"
+description = "Genesis Environment — self-improving coding agent"
 requires-python = ">=3.10"
 dependencies = [
     "openenv-core>=0.2.0",

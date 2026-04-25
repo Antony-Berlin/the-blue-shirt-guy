@@ -1,4 +1,4 @@
-"""Thin HTTP client for the CodeForge environment server.
+"""Thin HTTP client for the Genesis environment server.
 
 Calls POST /reset, POST /step, GET /state using plain requests.
 No WebSocket, no openenv-core dependency required on the agent/training side.
@@ -9,12 +9,12 @@ from typing import Any, Dict, Optional
 import requests
 
 
-class CodeForgeHTTPClient:
-    """HTTP client for the CodeForge evaluation server.
+class GenEnvHTTPClient:
+    """HTTP client for the Genesis evaluation server.
 
     Usage::
 
-        client = CodeForgeHTTPClient("http://localhost:7860")
+        client = GenEnvHTTPClient("http://localhost:7860")
         task = client.reset(seed=42)
         print(task["task_description"])
 
@@ -104,7 +104,7 @@ class CodeForgeHTTPClient:
     def close(self) -> None:
         self._session.close()
 
-    def __enter__(self) -> "CodeForgeHTTPClient":
+    def __enter__(self) -> "GenEnvHTTPClient":
         return self
 
     def __exit__(self, *_: Any) -> None:

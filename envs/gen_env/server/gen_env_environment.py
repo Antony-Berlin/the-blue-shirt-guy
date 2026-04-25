@@ -1,4 +1,4 @@
-"""CodeForgeEnvironment — pure evaluator deployed on HuggingFace Spaces.
+"""GenesisEnvironment — pure evaluator deployed on HuggingFace Spaces.
 
 The server holds benchmark tasks and hidden tests. It receives agent submissions
 (code + tool usage log) via POST /step, evaluates them, and returns a dual reward.
@@ -20,11 +20,11 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import Action
 
 try:
-    from ..models import CodeForgeObservation, CodeForgeState, SubmitCodeAction
+    from ..models import GenEnvObservation, GenEnvState, GenEnvAction
     from .rubric import score_reasoning
     from .tool_registry import ToolRegistry
 except ImportError:
-    from models import CodeForgeObservation, CodeForgeState, SubmitCodeAction
+    from models import GenEnvObservation, GenEnvState, GenEnvAction
     from server.rubric import score_reasoning
     from server.tool_registry import ToolRegistry
 
@@ -97,14 +97,14 @@ def _run_tests_against_code(code: str, tests: list[str]) -> tuple[int, int]:
     return passed, total
 
 
-class CodeForgeEnvironment(Environment):
+class GenesisEnvironment(Environment):
     """Pure evaluator environment — holds tasks, runs tests, computes rewards.
 
     The 5 coding tools live on the agent side (agent/tools/). The agent calls
     them locally, logs the calls, then submits code + log here for evaluation.
 
     POST /reset  → task description + starter code
-    POST /step   → evaluate SubmitCodeAction, return dual reward + tool weights
+    POST /step   → evaluate GenEnvAction, return dual reward + tool weights
     GET  /state  → current episode metadata + tool weight snapshot
     """
 
@@ -128,7 +128,7 @@ class CodeForgeEnvironment(Environment):
         seed: Optional[int] = None,
         episode_id: Optional[str] = None,
         **kwargs: Any,
-    ) -> CodeForgeObservation:
+    ) -> GenEnvObservation:
         import random
 
         rng = random.Random(seed)
@@ -138,7 +138,7 @@ class CodeForgeEnvironment(Environment):
         self._step_count = 0
         self._tool_log = []
 
-        return CodeForgeObservation(
+        return GenEnvObservation(
             task_id=self._current_task["id"],
             task_description=self._current_task["description"],
             starter_code=self._current_task.get("starter_code", ""),
@@ -155,16 +155,16 @@ class CodeForgeEnvironment(Environment):
         action: Action,
         timeout_s: Optional[float] = None,
         **kwargs: Any,
-    ) -> CodeForgeObservation:
-        if not isinstance(action, SubmitCodeAction):
-            return CodeForgeObservation(
+    ) -> GenEnvObservation:
+        if not isinstance(action, GenEnvAction):
+            return GenEnvObservation(
                 task_id=self._current_task["id"] if self._current_task else "",
                 task_description="",
                 starter_code="",
                 difficulty="easy",
                 reward=0.0,
                 done=False,
-                nl_feedback=f"Unknown action type: {type(action).__name__}. Expected SubmitCodeAction.",
+                nl_feedback=f"Unknown action type: {type(action).__name__}. Expected GenEnvAction.",
                 tool_weights=self._registry.snapshot(),
             )
 
@@ -191,7 +191,7 @@ class CodeForgeEnvironment(Environment):
         ]
         self._registry.update(reward, tools_used)
 
-        return CodeForgeObservation(
+        return GenEnvObservation(
             task_id=task["id"],
             task_description=task["description"],
             starter_code=task.get("starter_code", ""),
@@ -210,8 +210,8 @@ class CodeForgeEnvironment(Environment):
         )
 
     @property
-    def state(self) -> CodeForgeState:
-        return CodeForgeState(
+    def state(self) -> GenEnvState:
+        return GenEnvState(
             episode_id=self._episode_id,
             step_count=self._step_count,
             task_id=self._current_task["id"] if self._current_task else None,
