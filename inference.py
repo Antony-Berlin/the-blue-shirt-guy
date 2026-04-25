@@ -75,19 +75,19 @@ _SYSTEM_PROMPT = textwrap.dedent("""
     Respond ONLY with a single JSON object. No prose, no markdown fences.
 """).strip()
 
-_TOOL_ACTIONS = {
-    "search_code_examples",
-    "run_tests",
-    "lint_code",
-    "fetch_docs",
-    "explain_error",
-}
+# Built dynamically so new tools created by the Tool Architect are immediately
+# available to the agent without restarting or editing this file.
+def _get_tool_actions() -> set:
+    from agent.tool_executor import _discover_tools
+    return set(_discover_tools())
 
 
-def _make_user_prompt(description: str, starter_code: str) -> str:
+def _make_user_prompt(description: str, starter_code: str, tool_actions: set) -> str:
+    tool_list = "\n".join(f"  - {t}" for t in sorted(tool_actions))
     return (
         f"TASK:\n{description}\n\n"
         f"STARTER CODE:\n```python\n{starter_code}\n```\n\n"
+        f"Available tools:\n{tool_list}\n\n"
         "Use tools to research and test your solution, then submit."
     )
 
@@ -143,9 +143,10 @@ def run_tool_loop(
     starter_code: str,
 ) -> str:
     """Run the iterative tool-use loop; return final code string."""
+    tool_actions = _get_tool_actions()
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": _make_user_prompt(description, starter_code)},
+        {"role": "user", "content": _make_user_prompt(description, starter_code, tool_actions)},
     ]
 
     final_code = starter_code
@@ -177,7 +178,7 @@ def run_tool_loop(
             final_code = action.get("code", starter_code)
             break
 
-        elif action_name in _TOOL_ACTIONS:
+        elif action_name in tool_actions:
             # Flat schema: {"action": "tool_name", "arg1": ..., "arg2": ...}
             args = {k: v for k, v in action.items() if k != "action"}
             tool_result = executor.call(action_name, **args)
@@ -187,15 +188,14 @@ def run_tool_loop(
             # Legacy wrapper schema: {"action": "call_tool", "tool": "...", "args": {...}}
             tool_name = action.get("tool", "")
             args = action.get("args", {})
-            if tool_name in _TOOL_ACTIONS:
+            if tool_name in tool_actions:
                 tool_result = executor.call(tool_name, **args)
                 messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
             else:
-                messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {sorted(_TOOL_ACTIONS)}"})
+                messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {sorted(tool_actions)}"})
 
         else:
             messages.append({"role": "user", "content": f"Unknown action '{action_name}'. Use a tool action or 'submit'."})
-
     return final_code
 
 
