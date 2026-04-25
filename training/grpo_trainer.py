@@ -6,13 +6,15 @@ each with the Genesis environment reward, then update using the GRPO objective:
 
     L_GRPO = -E[ (r_i - mean(r)) / std(r) * log π(y_i|x) ]
 
-Memory strategy for 14-16 GiB GPUs:
+Memory strategy for 14-16 GiB GPUs (Colab T4):
   - QLoRA: 4-bit quantised base + LoRA adapters (requires bitsandbytes)
-    Reduces 7B from ~14 GiB to ~5 GiB, leaving ~9 GiB for activations + ref.
-  - Reference model also loaded in 4-bit (frozen, inference-only) ~5 GiB.
+    Reduces 7B from ~14 GiB to ~5 GiB.
+  - NO separate reference model — frozen base weights under LoRA serve as
+    the reference. disable_adapter_layers() / enable_adapter_layers() toggle
+    between ref and policy in the same forward pass — zero extra VRAM.
   - Completions sampled ONE AT A TIME — no G× VRAM spike from batched generate.
   - Gradients accumulated one completion at a time — backward() inside loop,
-    activations freed immediately, no simultaneous G forward passes in VRAM.
+    activations freed immediately.
   - Gradient checkpointing enabled — trades compute for activation memory.
   - torch.cuda.empty_cache() after every task.
 
@@ -219,17 +221,19 @@ def score_completion(completion_text: str, task: dict) -> float:
 
 def grpo_loss_and_backward(
     model,
-    ref_model,
+    ref_model,          # unused — kept for API compat; pass None
     tokenizer,
     prompt_text: str,
     completions: List[str],
     rewards: List[float],
     cfg: GRPOConfig,
+    use_lora: bool = True,
 ) -> float:
     """Compute per-completion GRPO loss and call backward() immediately.
 
-    Processes one completion at a time so only one forward pass worth of
-    activations lives in VRAM at any moment. Returns mean scalar loss.
+    Reference log-probs are computed by temporarily disabling LoRA adapters
+    so the frozen base weights act as the reference — zero extra VRAM.
+    Processes one completion at a time for memory efficiency.
     """
     import torch
 
@@ -240,9 +244,8 @@ def grpo_loss_and_backward(
     advantages = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
     advantages = advantages.clamp(-cfg.reward_clip, cfg.reward_clip)
 
-    # Pre-compute prompt token length once (same for every completion)
     prompt_ids = tokenizer(prompt_text, return_tensors="pt")["input_ids"]
-    prompt_len = prompt_ids.shape[1] - 1  # -1 for the shift in loss computation
+    prompt_len = prompt_ids.shape[1] - 1
 
     scalar_losses = []
 
@@ -254,20 +257,23 @@ def grpo_loss_and_backward(
             max_length=cfg.max_prompt_tokens + cfg.max_new_tokens,
         )
         input_ids = enc["input_ids"].to(model.device)
-        labels    = input_ids[:, 1:]          # shifted right
-        comp_ids  = labels[:, prompt_len:]    # completion portion only
+        labels    = input_ids[:, 1:]
+        comp_ids  = labels[:, prompt_len:]
 
-        # Reference log-probs (no grad — free tensors immediately)
+        # Reference log-probs: disable adapters so frozen base weights are used
         with torch.no_grad():
-            ref_lp_all = torch.nn.functional.log_softmax(
-                ref_model(input_ids).logits[:, :-1, :], dim=-1
-            )
-        ref_lp = ref_lp_all[:, prompt_len:, :].gather(
-            2, comp_ids.unsqueeze(-1)
-        ).squeeze(-1).sum()
-        del ref_lp_all
+            if use_lora:
+                model.disable_adapter_layers()
+            ref_logits = model(input_ids).logits[:, :-1, :]
+            ref_lp_all = torch.nn.functional.log_softmax(ref_logits, dim=-1)
+            ref_lp = ref_lp_all[:, prompt_len:, :].gather(
+                2, comp_ids.unsqueeze(-1)
+            ).squeeze(-1).sum()
+            del ref_logits, ref_lp_all
+            if use_lora:
+                model.enable_adapter_layers()
 
-        # Policy log-probs (with grad)
+        # Policy log-probs (with grad, adapters enabled)
         lp_all = torch.nn.functional.log_softmax(
             model(input_ids).logits[:, :-1, :], dim=-1
         )
@@ -279,7 +285,6 @@ def grpo_loss_and_backward(
         kl   = lp - ref_lp.detach()
         loss = -(adv.to(model.device) * lp - cfg.kl_coef * kl) / len(completions)
 
-        # backward() frees activations immediately (retain_graph=False default)
         loss.backward()
         scalar_losses.append(loss.item())
         del input_ids, labels, comp_ids, lp, ref_lp, kl, loss
@@ -367,20 +372,11 @@ class GRPOTrainer:
         else:
             model.gradient_checkpointing_enable()
 
-        self.model = model
-
-        print("[GRPO] Loading reference model (frozen 4-bit)...", flush=True)
-        self.ref_model = AutoModelForCausalLM.from_pretrained(
-            self.cfg.model_name,
-            token=hf_token,
-            trust_remote_code=True,
-            quantization_config=bnb_cfg,
-            torch_dtype=None if use_4bit else torch.bfloat16,
-            device_map="auto",
-        )
-        self.ref_model.resize_token_embeddings(len(self.tokenizer))
-        for p in self.ref_model.parameters():
-            p.requires_grad_(False)
+        self.model    = model
+        # No separate ref model — base weights under LoRA serve as the reference.
+        # grpo_loss_and_backward toggles adapters off/on around the ref forward pass.
+        self.ref_model = None
+        self._use_lora = self.cfg.use_lora
 
         self.optimizer = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, self.model.parameters()),
@@ -451,8 +447,9 @@ class GRPOTrainer:
 
         self.optimizer.zero_grad()
         loss_val = grpo_loss_and_backward(
-            self.model, self.ref_model, self.tokenizer,
+            self.model, None, self.tokenizer,
             prompt, completions, rewards, self.cfg,
+            use_lora=self._use_lora,
         )
         if loss_val != 0.0:
             import torch
