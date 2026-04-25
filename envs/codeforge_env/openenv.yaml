@@ -1,0 +1,22 @@
+spec_version: 1
+name: codeforge_env
+type: mcp
+description: >
+  CodeForge Self-Programmer — a coding agent that solves programming tasks and
+  improves its own MCP tools through reinforcement learning. The environment
+  exposes 5 evolvable tools, scores agent performance with a dual reward
+  (pass@1 + reasoning quality), and tracks per-tool EMA weights used to train
+  a Tool Architect LLM via GRPO.
+runtime: python
+app: server.app:app
+port: 7860
+variables:
+  - name: ANTHROPIC_API_KEY
+    description: API key for the LLM-as-judge rubric scorer
+    required: false
+  - name: BENCHMARK_PATH
+    description: Path to benchmark.json (default tasks/benchmark.json)
+    required: false
+  - name: MAX_STEPS_PER_EPISODE
+    description: Maximum tool-call steps per episode (default 10)
+    required: false

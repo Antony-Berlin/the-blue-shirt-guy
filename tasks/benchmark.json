@@ -1,0 +1,551 @@
+[
+  {
+    "id": "cf_001",
+    "description": "Write a function `most_frequent(lst)` that returns the most frequently occurring element in a list. If there is a tie, return the element that appears first.",
+    "starter_code": "def most_frequent(lst):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert most_frequent([1, 2, 2, 3]) == 2",
+      "assert most_frequent(['a', 'b', 'a']) == 'a'",
+      "assert most_frequent([5]) == 5",
+      "assert most_frequent([1, 1, 2, 2]) == 1"
+    ]
+  },
+  {
+    "id": "cf_002",
+    "description": "Implement `is_palindrome(s)` that checks if a string is a palindrome, ignoring spaces, punctuation, and case.",
+    "starter_code": "def is_palindrome(s: str) -> bool:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert is_palindrome('racecar') == True",
+      "assert is_palindrome('A man a plan a canal Panama') == True",
+      "assert is_palindrome('hello') == False",
+      "assert is_palindrome('') == True"
+    ]
+  },
+  {
+    "id": "cf_003",
+    "description": "Write `two_sum(nums, target)` that returns the indices of the two numbers that add up to target. Assume exactly one solution exists and you may not use the same element twice.",
+    "starter_code": "def two_sum(nums, target):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert two_sum([2, 7, 11, 15], 9) == [0, 1]",
+      "assert two_sum([3, 2, 4], 6) == [1, 2]",
+      "assert two_sum([3, 3], 6) == [0, 1]"
+    ]
+  },
+  {
+    "id": "cf_004",
+    "description": "Implement `flatten(lst)` that recursively flattens a nested list of arbitrary depth.",
+    "starter_code": "def flatten(lst):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert flatten([1, [2, 3], [4, [5, 6]]]) == [1, 2, 3, 4, 5, 6]",
+      "assert flatten([]) == []",
+      "assert flatten([[1, [2]], [3]]) == [1, 2, 3]"
+    ]
+  },
+  {
+    "id": "cf_005",
+    "description": "Write `count_words(text)` that returns a dict mapping each word (lowercase, stripped of punctuation) to its frequency.",
+    "starter_code": "def count_words(text: str) -> dict:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert count_words('hello world hello') == {'hello': 2, 'world': 1}",
+      "assert count_words('') == {}",
+      "assert count_words('Hi, hi!') == {'hi': 2}"
+    ]
+  },
+  {
+    "id": "cf_006",
+    "description": "Implement `binary_search(arr, target)` that returns the index of target in a sorted list, or -1 if not found.",
+    "starter_code": "def binary_search(arr, target):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert binary_search([1, 3, 5, 7, 9], 5) == 2",
+      "assert binary_search([1, 3, 5, 7, 9], 6) == -1",
+      "assert binary_search([], 1) == -1",
+      "assert binary_search([1], 1) == 0"
+    ]
+  },
+  {
+    "id": "cf_007",
+    "description": "Write `merge_sorted(a, b)` that merges two sorted lists into a single sorted list without using sort().",
+    "starter_code": "def merge_sorted(a, b):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert merge_sorted([1, 3, 5], [2, 4, 6]) == [1, 2, 3, 4, 5, 6]",
+      "assert merge_sorted([], [1, 2]) == [1, 2]",
+      "assert merge_sorted([1], []) == [1]"
+    ]
+  },
+  {
+    "id": "cf_008",
+    "description": "Implement `fib(n)` that returns the n-th Fibonacci number (0-indexed: fib(0)=0, fib(1)=1). Use iteration, not recursion.",
+    "starter_code": "def fib(n: int) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert fib(0) == 0",
+      "assert fib(1) == 1",
+      "assert fib(6) == 8",
+      "assert fib(10) == 55"
+    ]
+  },
+  {
+    "id": "cf_009",
+    "description": "Write `group_anagrams(words)` that groups a list of strings into lists of anagrams.",
+    "starter_code": "def group_anagrams(words):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "result = group_anagrams(['eat', 'tea', 'tan', 'ate', 'nat', 'bat'])\nresult_sorted = [sorted(g) for g in result]\nassert sorted(result_sorted) == [['ate', 'eat', 'tea'], ['bat'], ['nat', 'tan']]",
+      "assert group_anagrams([]) == []",
+      "assert group_anagrams(['a']) == [['a']]"
+    ]
+  },
+  {
+    "id": "cf_010",
+    "description": "Implement `longest_common_subsequence(s1, s2)` that returns the length of the LCS of two strings.",
+    "starter_code": "def longest_common_subsequence(s1: str, s2: str) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert longest_common_subsequence('abcde', 'ace') == 3",
+      "assert longest_common_subsequence('abc', 'abc') == 3",
+      "assert longest_common_subsequence('abc', 'def') == 0",
+      "assert longest_common_subsequence('', 'abc') == 0"
+    ]
+  },
+  {
+    "id": "cf_011",
+    "description": "Write `max_subarray_sum(nums)` that returns the maximum subarray sum (Kadane's algorithm).",
+    "starter_code": "def max_subarray_sum(nums):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert max_subarray_sum([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6",
+      "assert max_subarray_sum([1]) == 1",
+      "assert max_subarray_sum([-1, -2, -3]) == -1"
+    ]
+  },
+  {
+    "id": "cf_012",
+    "description": "Implement `is_valid_parens(s)` that checks if a string of brackets '()[]{}'  is valid (properly opened and closed).",
+    "starter_code": "def is_valid_parens(s: str) -> bool:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert is_valid_parens('()[]{}') == True",
+      "assert is_valid_parens('([)]') == False",
+      "assert is_valid_parens('{[]}') == True",
+      "assert is_valid_parens('') == True"
+    ]
+  },
+  {
+    "id": "cf_013",
+    "description": "Write `coin_change(coins, amount)` that returns the minimum number of coins needed to make the amount, or -1 if impossible.",
+    "starter_code": "def coin_change(coins, amount: int) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert coin_change([1, 5, 11], 15) == 3",
+      "assert coin_change([2], 3) == -1",
+      "assert coin_change([1], 0) == 0",
+      "assert coin_change([1, 2, 5], 11) == 3"
+    ]
+  },
+  {
+    "id": "cf_014",
+    "description": "Implement `product_except_self(nums)` that returns an array where each element is the product of all other elements. No division allowed.",
+    "starter_code": "def product_except_self(nums):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert product_except_self([1, 2, 3, 4]) == [24, 12, 8, 6]",
+      "assert product_except_self([-1, 1, 0, -3, 3]) == [0, 0, 9, 0, 0]"
+    ]
+  },
+  {
+    "id": "cf_015",
+    "description": "Write `num_islands(grid)` that counts the number of islands in a 2D grid of '1' (land) and '0' (water).",
+    "starter_code": "def num_islands(grid):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert num_islands([['1','1','0'],['1','1','0'],['0','0','1']]) == 2",
+      "assert num_islands([['1','1','1'],['0','1','0'],['1','1','1']]) == 1",
+      "assert num_islands([]) == 0"
+    ]
+  },
+  {
+    "id": "cf_016",
+    "description": "Implement `rotate_matrix(matrix)` that rotates an n×n matrix 90 degrees clockwise in-place.",
+    "starter_code": "def rotate_matrix(matrix):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "m = [[1,2,3],[4,5,6],[7,8,9]]; rotate_matrix(m); assert m == [[7,4,1],[8,5,2],[9,6,3]]",
+      "m = [[1]]; rotate_matrix(m); assert m == [[1]]"
+    ]
+  },
+  {
+    "id": "cf_017",
+    "description": "Write `word_break(s, word_dict)` that returns True if s can be segmented into words from word_dict.",
+    "starter_code": "def word_break(s: str, word_dict) -> bool:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert word_break('leetcode', ['leet', 'code']) == True",
+      "assert word_break('applepenapple', ['apple', 'pen']) == True",
+      "assert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) == False"
+    ]
+  },
+  {
+    "id": "cf_018",
+    "description": "Implement `lru_cache_class()` that returns an LRU cache object with get(key) and put(key, value) methods with capacity=3.",
+    "starter_code": "class LRUCache:\n    def __init__(self, capacity: int):\n        pass\n    def get(self, key: int) -> int:\n        pass\n    def put(self, key: int, value: int) -> None:\n        pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "cache = LRUCache(3)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.put(3, 3)\nassert cache.get(1) == 1\ncache.put(4, 4)\nassert cache.get(2) == -1",
+      "cache = LRUCache(1)\ncache.put(2, 1)\nassert cache.get(2) == 1\ncache.put(3, 2)\nassert cache.get(2) == -1\nassert cache.get(3) == 2"
+    ]
+  },
+  {
+    "id": "cf_019",
+    "description": "Write `serialize_deserialize(root)` to serialize and deserialize a binary tree. Implement `serialize(root) -> str` and `deserialize(data) -> TreeNode`.",
+    "starter_code": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\ndef serialize(root) -> str:\n    pass\n\ndef deserialize(data: str):\n    pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "root = TreeNode(1, TreeNode(2), TreeNode(3, TreeNode(4), TreeNode(5)))\nassert deserialize(serialize(root)).val == 1\nassert deserialize(serialize(root)).right.left.val == 4",
+      "assert deserialize(serialize(None)) is None"
+    ]
+  },
+  {
+    "id": "cf_020",
+    "description": "Implement `find_median_sorted_arrays(nums1, nums2)` that finds the median of two sorted arrays in O(log(m+n)) time.",
+    "starter_code": "def find_median_sorted_arrays(nums1, nums2) -> float:\n    pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "assert find_median_sorted_arrays([1, 3], [2]) == 2.0",
+      "assert find_median_sorted_arrays([1, 2], [3, 4]) == 2.5",
+      "assert find_median_sorted_arrays([], [1]) == 1.0"
+    ]
+  },
+  {
+    "id": "cf_021",
+    "description": "Write `trap_water(height)` that computes how much water can be trapped after rain given an elevation map.",
+    "starter_code": "def trap_water(height) -> int:\n    pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "assert trap_water([0,1,0,2,1,0,1,3,2,1,2,1]) == 6",
+      "assert trap_water([4,2,0,3,2,5]) == 9",
+      "assert trap_water([]) == 0"
+    ]
+  },
+  {
+    "id": "cf_022",
+    "description": "Implement `min_window_substring(s, t)` that finds the minimum window in s that contains all characters in t.",
+    "starter_code": "def min_window_substring(s: str, t: str) -> str:\n    pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "assert min_window_substring('ADOBECODEBANC', 'ABC') == 'BANC'",
+      "assert min_window_substring('a', 'a') == 'a'",
+      "assert min_window_substring('a', 'aa') == ''"
+    ]
+  },
+  {
+    "id": "cf_023",
+    "description": "Write `decode_ways(s)` that counts the number of ways to decode a digit string where 1-26 map to A-Z.",
+    "starter_code": "def decode_ways(s: str) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert decode_ways('12') == 2",
+      "assert decode_ways('226') == 3",
+      "assert decode_ways('06') == 0",
+      "assert decode_ways('0') == 0"
+    ]
+  },
+  {
+    "id": "cf_024",
+    "description": "Implement `unique_paths(m, n)` that counts paths from top-left to bottom-right of an m×n grid moving only right or down.",
+    "starter_code": "def unique_paths(m: int, n: int) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert unique_paths(3, 7) == 28",
+      "assert unique_paths(3, 2) == 3",
+      "assert unique_paths(1, 1) == 1"
+    ]
+  },
+  {
+    "id": "cf_025",
+    "description": "Write `jump_game(nums)` that returns True if you can reach the last index. Each element is max jump length.",
+    "starter_code": "def jump_game(nums) -> bool:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert jump_game([2,3,1,1,4]) == True",
+      "assert jump_game([3,2,1,0,4]) == False",
+      "assert jump_game([0]) == True"
+    ]
+  },
+  {
+    "id": "cf_026",
+    "description": "Implement `top_k_frequent(nums, k)` that returns the k most frequent elements.",
+    "starter_code": "def top_k_frequent(nums, k: int):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert sorted(top_k_frequent([1,1,1,2,2,3], 2)) == [1, 2]",
+      "assert top_k_frequent([1], 1) == [1]"
+    ]
+  },
+  {
+    "id": "cf_027",
+    "description": "Write `daily_temperatures(temps)` that returns how many days until a warmer temperature for each day.",
+    "starter_code": "def daily_temperatures(temps):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert daily_temperatures([73,74,75,71,69,72,76,73]) == [1,1,4,2,1,1,0,0]",
+      "assert daily_temperatures([30,40,50,60]) == [1,1,1,0]",
+      "assert daily_temperatures([30,20,10]) == [0,0,0]"
+    ]
+  },
+  {
+    "id": "cf_028",
+    "description": "Implement `zigzag_level_order(root)` that returns the zigzag level-order traversal of a binary tree.",
+    "starter_code": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\ndef zigzag_level_order(root):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "root = TreeNode(3, TreeNode(9), TreeNode(20, TreeNode(15), TreeNode(7)))\nassert zigzag_level_order(root) == [[3], [20, 9], [15, 7]]",
+      "assert zigzag_level_order(None) == []"
+    ]
+  },
+  {
+    "id": "cf_029",
+    "description": "Write `longest_increasing_subsequence(nums)` that returns the length of the LIS.",
+    "starter_code": "def longest_increasing_subsequence(nums) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert longest_increasing_subsequence([10,9,2,5,3,7,101,18]) == 4",
+      "assert longest_increasing_subsequence([0,1,0,3,2,3]) == 4",
+      "assert longest_increasing_subsequence([7,7,7]) == 1"
+    ]
+  },
+  {
+    "id": "cf_030",
+    "description": "Implement `course_schedule(numCourses, prerequisites)` that returns True if all courses can be finished (no cycle).",
+    "starter_code": "def course_schedule(numCourses: int, prerequisites) -> bool:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert course_schedule(2, [[1,0]]) == True",
+      "assert course_schedule(2, [[1,0],[0,1]]) == False",
+      "assert course_schedule(1, []) == True"
+    ]
+  },
+  {
+    "id": "cf_031",
+    "description": "Write `generate_parentheses(n)` that generates all combinations of n pairs of well-formed parentheses.",
+    "starter_code": "def generate_parentheses(n: int):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert sorted(generate_parentheses(3)) == ['((()))', '(()())', '(())()', '()(())', '()()()']",
+      "assert generate_parentheses(1) == ['()']"
+    ]
+  },
+  {
+    "id": "cf_032",
+    "description": "Implement `subsets(nums)` that returns all possible subsets (power set) of a list without duplicates.",
+    "starter_code": "def subsets(nums):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "result = subsets([1,2,3])\nassert len(result) == 8\nassert [] in result\nassert [1,2,3] in result",
+      "assert subsets([]) == [[]]"
+    ]
+  },
+  {
+    "id": "cf_033",
+    "description": "Write `permutations(nums)` that returns all permutations of a list.",
+    "starter_code": "def permutations(nums):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "result = permutations([1,2,3])\nassert len(result) == 6\nassert [1,2,3] in result\nassert [3,2,1] in result",
+      "assert permutations([1]) == [[1]]"
+    ]
+  },
+  {
+    "id": "cf_034",
+    "description": "Implement `kth_largest(nums, k)` that finds the k-th largest element in an unsorted array.",
+    "starter_code": "def kth_largest(nums, k: int) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert kth_largest([3,2,1,5,6,4], 2) == 5",
+      "assert kth_largest([3,2,3,1,2,4,5,5,6], 4) == 4"
+    ]
+  },
+  {
+    "id": "cf_035",
+    "description": "Write `spiral_order(matrix)` that returns all elements of a matrix in spiral order.",
+    "starter_code": "def spiral_order(matrix):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert spiral_order([[1,2,3],[4,5,6],[7,8,9]]) == [1,2,3,6,9,8,7,4,5]",
+      "assert spiral_order([[1,2,3,4],[5,6,7,8],[9,10,11,12]]) == [1,2,3,4,8,12,11,10,9,5,6,7]",
+      "assert spiral_order([]) == []"
+    ]
+  },
+  {
+    "id": "cf_036",
+    "description": "Implement `valid_sudoku(board)` that determines if a 9×9 Sudoku board is valid (partial fills allowed).",
+    "starter_code": "def valid_sudoku(board) -> bool:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "board = [['5','3','.','.','7','.','.','.','.'],['6','.','.','1','9','5','.','.','.'],['.','9','8','.','.','.','.','6','.'],['8','.','.','.','6','.','.','.','3'],['4','.','.','8','.','3','.','.','1'],['7','.','.','.','2','.','.','.','6'],['.','6','.','.','.','.','2','8','.'],['.','.','.','4','1','9','.','.','5'],['.','.','.','.','8','.','.','7','9']]\nassert valid_sudoku(board) == True"
+    ]
+  },
+  {
+    "id": "cf_037",
+    "description": "Write `reverse_linked_list(head)` that reverses a singly linked list and returns the new head.",
+    "starter_code": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverse_linked_list(head):\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "def make_list(vals):\n    nodes = [ListNode(v) for v in vals]\n    for i in range(len(nodes)-1): nodes[i].next = nodes[i+1]\n    return nodes[0] if nodes else None\ndef to_list(node):\n    result = []\n    while node: result.append(node.val); node = node.next\n    return result\nassert to_list(reverse_linked_list(make_list([1,2,3,4,5]))) == [5,4,3,2,1]",
+      "def make_list(vals):\n    nodes = [ListNode(v) for v in vals]\n    for i in range(len(nodes)-1): nodes[i].next = nodes[i+1]\n    return nodes[0] if nodes else None\nassert reverse_linked_list(None) is None"
+    ]
+  },
+  {
+    "id": "cf_038",
+    "description": "Implement `linked_list_cycle(head)` that detects if a linked list has a cycle using Floyd's algorithm.",
+    "starter_code": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef linked_list_cycle(head) -> bool:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "a, b, c = ListNode(1), ListNode(2), ListNode(3)\na.next = b; b.next = c; c.next = b\nassert linked_list_cycle(a) == True",
+      "a, b = ListNode(1), ListNode(2)\na.next = b\nassert linked_list_cycle(a) == False",
+      "assert linked_list_cycle(None) == False"
+    ]
+  },
+  {
+    "id": "cf_039",
+    "description": "Write `climbing_stairs(n)` that counts the number of distinct ways to climb n stairs (1 or 2 steps at a time).",
+    "starter_code": "def climbing_stairs(n: int) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert climbing_stairs(2) == 2",
+      "assert climbing_stairs(3) == 3",
+      "assert climbing_stairs(5) == 8"
+    ]
+  },
+  {
+    "id": "cf_040",
+    "description": "Implement `max_profit(prices)` that returns the maximum profit from a single buy-sell transaction.",
+    "starter_code": "def max_profit(prices) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert max_profit([7,1,5,3,6,4]) == 5",
+      "assert max_profit([7,6,4,3,1]) == 0",
+      "assert max_profit([1]) == 0"
+    ]
+  },
+  {
+    "id": "cf_041",
+    "description": "Write `missing_number(nums)` that finds the missing number in [0..n] given a list of n distinct numbers.",
+    "starter_code": "def missing_number(nums) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert missing_number([3,0,1]) == 2",
+      "assert missing_number([0,1]) == 2",
+      "assert missing_number([9,6,4,2,3,5,7,0,1]) == 8"
+    ]
+  },
+  {
+    "id": "cf_042",
+    "description": "Implement `single_number(nums)` that finds the element that appears only once when all others appear twice.",
+    "starter_code": "def single_number(nums) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert single_number([2,2,1]) == 1",
+      "assert single_number([4,1,2,1,2]) == 4",
+      "assert single_number([1]) == 1"
+    ]
+  },
+  {
+    "id": "cf_043",
+    "description": "Write `count_primes(n)` that counts the number of primes less than n using the Sieve of Eratosthenes.",
+    "starter_code": "def count_primes(n: int) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert count_primes(10) == 4",
+      "assert count_primes(0) == 0",
+      "assert count_primes(1) == 0",
+      "assert count_primes(20) == 8"
+    ]
+  },
+  {
+    "id": "cf_044",
+    "description": "Implement `is_power_of_two(n)` that returns True if n is a power of 2.",
+    "starter_code": "def is_power_of_two(n: int) -> bool:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert is_power_of_two(1) == True",
+      "assert is_power_of_two(16) == True",
+      "assert is_power_of_two(3) == False",
+      "assert is_power_of_two(0) == False"
+    ]
+  },
+  {
+    "id": "cf_045",
+    "description": "Write `roman_to_int(s)` that converts a Roman numeral string to an integer.",
+    "starter_code": "def roman_to_int(s: str) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert roman_to_int('III') == 3",
+      "assert roman_to_int('IV') == 4",
+      "assert roman_to_int('IX') == 9",
+      "assert roman_to_int('LVIII') == 58",
+      "assert roman_to_int('MCMXCIV') == 1994"
+    ]
+  },
+  {
+    "id": "cf_046",
+    "description": "Implement `int_to_roman(num)` that converts an integer to a Roman numeral string.",
+    "starter_code": "def int_to_roman(num: int) -> str:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert int_to_roman(3) == 'III'",
+      "assert int_to_roman(4) == 'IV'",
+      "assert int_to_roman(58) == 'LVIII'",
+      "assert int_to_roman(1994) == 'MCMXCIV'"
+    ]
+  },
+  {
+    "id": "cf_047",
+    "description": "Write `find_all_duplicates(nums)` that finds all elements that appear twice in an array [1..n].",
+    "starter_code": "def find_all_duplicates(nums):\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert sorted(find_all_duplicates([4,3,2,7,8,2,3,1])) == [2, 3]",
+      "assert find_all_duplicates([1,1,2]) == [1]",
+      "assert find_all_duplicates([1]) == []"
+    ]
+  },
+  {
+    "id": "cf_048",
+    "description": "Implement `matrix_diagonal_sum(mat)` that returns the sum of primary and secondary diagonal elements (shared center counted once).",
+    "starter_code": "def matrix_diagonal_sum(mat) -> int:\n    pass\n",
+    "difficulty": "easy",
+    "tests": [
+      "assert matrix_diagonal_sum([[1,2,3],[4,5,6],[7,8,9]]) == 25",
+      "assert matrix_diagonal_sum([[1,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,1,1]]) == 8",
+      "assert matrix_diagonal_sum([[5]]) == 5"
+    ]
+  },
+  {
+    "id": "cf_049",
+    "description": "Write `longest_consecutive_sequence(nums)` that finds the length of the longest consecutive sequence in O(n).",
+    "starter_code": "def longest_consecutive_sequence(nums) -> int:\n    pass\n",
+    "difficulty": "medium",
+    "tests": [
+      "assert longest_consecutive_sequence([100,4,200,1,3,2]) == 4",
+      "assert longest_consecutive_sequence([0,3,7,2,5,8,4,6,0,1]) == 9",
+      "assert longest_consecutive_sequence([]) == 0"
+    ]
+  },
+  {
+    "id": "cf_050",
+    "description": "Implement `pacific_atlantic_water_flow(heights)` that returns all cells from which water can flow to both the Pacific and Atlantic oceans.",
+    "starter_code": "def pacific_atlantic_water_flow(heights):\n    pass\n",
+    "difficulty": "hard",
+    "tests": [
+      "result = pacific_atlantic_water_flow([[1,2,2,3,5],[3,2,3,4,4],[2,4,5,3,1],[6,7,1,4,5],[5,1,1,2,4]])\nassert sorted(result) == sorted([[0,4],[1,3],[1,4],[2,2],[3,0],[3,1],[4,0]])",
+      "assert pacific_atlantic_water_flow([[1]]) == [[0,0]]"
+    ]
+  }
+]
