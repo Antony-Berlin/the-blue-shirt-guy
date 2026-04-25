@@ -141,8 +141,13 @@ def run_tool_loop(
     executor: ToolExecutor,
     description: str,
     starter_code: str,
+    env=None,
 ) -> str:
-    """Run the iterative tool-use loop; return final code string."""
+    """Run the iterative tool-use loop; return final code string.
+
+    If env is provided, each tool call is graded immediately via
+    env.grade_tool_call() and the grade is fed back to the agent as context.
+    """
     tool_actions = _get_tool_actions()
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -178,24 +183,35 @@ def run_tool_loop(
             final_code = action.get("code", starter_code)
             break
 
-        elif action_name in tool_actions:
-            # Flat schema: {"action": "tool_name", "arg1": ..., "arg2": ...}
-            args = {k: v for k, v in action.items() if k != "action"}
-            tool_result = executor.call(action_name, **args)
-            messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
-
-        elif action_name == "call_tool":
-            # Legacy wrapper schema: {"action": "call_tool", "tool": "...", "args": {...}}
-            tool_name = action.get("tool", "")
-            args = action.get("args", {})
-            if tool_name in tool_actions:
-                tool_result = executor.call(tool_name, **args)
-                messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
+        elif action_name in tool_actions or action_name == "call_tool":
+            # Resolve tool name and args for both flat and legacy wrapper schemas
+            if action_name == "call_tool":
+                tool_name = action.get("tool", "")
+                args = action.get("args", {})
             else:
+                tool_name = action_name
+                args = {k: v for k, v in action.items() if k != "action"}
+
+            if tool_name not in tool_actions:
                 messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {sorted(tool_actions)}"})
+                continue
+
+            tool_result = executor.call(tool_name, **args)
+
+            # Grade this call immediately and feed the score back to the agent
+            if env is not None:
+                entry = executor.get_log()[-1]  # the entry just appended
+                grade = env.grade_tool_call(entry)
+                grade_hint = f"\n[Tool quality score: {grade:.2f}/1.0]"
+                print(f"[DEBUG] tool={tool_name} grade={grade:.2f}", flush=True)
+            else:
+                grade_hint = ""
+
+            messages.append({"role": "user", "content": f"Tool result:\n{tool_result}{grade_hint}"})
 
         else:
             messages.append({"role": "user", "content": f"Unknown action '{action_name}'. Use a tool action or 'submit'."})
+
     return final_code
 
 
@@ -232,7 +248,7 @@ def main() -> None:
 
         # ── 2. Tool-use loop (local) ────────────────────────────────────────
         executor.reset_log()
-        final_code = run_tool_loop(client, executor, description, starter_code)
+        final_code = run_tool_loop(client, executor, description, starter_code, env=env)
         tool_log = executor.get_log()
         print(tool_log)
         print(f"[DEBUG] Final code length: {len(final_code)} chars")

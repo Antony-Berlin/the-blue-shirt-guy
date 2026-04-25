@@ -57,6 +57,7 @@ def _run_episode(seed: int = None) -> Dict:
         client, executor,
         obs.task_description,
         obs.starter_code,
+        env=env,
     )
     tool_log = executor.get_log()
 

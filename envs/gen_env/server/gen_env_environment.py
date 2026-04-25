@@ -123,6 +123,36 @@ class GenesisEnvironment(Environment):
         self._tool_log: list = []
 
     # ------------------------------------------------------------------
+    # Per-tool-call grading (called after each individual tool invocation)
+    # ------------------------------------------------------------------
+
+    def grade_tool_call(self, entry: dict) -> float:
+        """Grade a single tool call entry immediately and store the result in-place.
+
+        Marks entry['graded'] = True and entry['grade'] = score so that step()
+        skips it during final evaluation (no double-grading).
+
+        Also appends the entry to the session's tool log so state is consistent
+        whether the agent submits mid-episode or not.
+
+        Returns the grade float [0.0, 1.0].
+        """
+        grade = self._grader.grade(entry)
+        entry["graded"] = True
+        entry["grade"] = grade
+
+        # Apply sequence-level adjustments against entries already in the log
+        from .tool_graders import RedundancyGrader, ErrorPropagationGrader
+        window = self._tool_log[-3:] + [entry]
+        r_adj = RedundancyGrader().grade_log(window)[-1]
+        e_adj = ErrorPropagationGrader().grade_log(window)[-1]
+        adjusted = max(0.0, min(1.0, grade + r_adj + e_adj))
+        entry["grade"] = adjusted
+
+        self._tool_log.append(entry)
+        return adjusted
+
+    # ------------------------------------------------------------------
     # Gym-style API
     # ------------------------------------------------------------------
 
@@ -172,7 +202,18 @@ class GenesisEnvironment(Environment):
             )
 
         self._step_count += 1
-        self._tool_log = action.tool_usage_log
+
+        # Merge: prefer pre-graded entries already in self._tool_log (built by
+        # grade_tool_call()), but fall back to action.tool_usage_log when env
+        # is used without per-call grading (e.g. HTTP mode or tests).
+        if self._tool_log:
+            # Append any entries from the action that aren't already in the log
+            logged_ids = {id(e) for e in self._tool_log}
+            for e in action.tool_usage_log:
+                if id(e) not in logged_ids:
+                    self._tool_log.append(e)
+        else:
+            self._tool_log = list(action.tool_usage_log)
 
         task = self._current_task or _fallback_task()
         tests = task.get("tests", [])
