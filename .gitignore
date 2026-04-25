@@ -41,3 +41,4 @@ Thumbs.db
 # Claude
 .claude/
 sample_inference.py
+agent/tools/*.bak
