@@ -1,14 +1,13 @@
 """grpo_trainer.py — GRPO fine-tuning using TRL's GRPOTrainer + QLoRA.
 
-Delegates all GRPO mechanics (sampling, advantage normalisation, KL penalty,
-gradient accumulation) to TRL. This file only wires up:
-  - QLoRA model loading (bitsandbytes 4-bit + LoRA adapters)
-  - A reward function that scores completions via GenesisEnvironment
-  - A thin dataset wrapper so TRL can iterate over tasks
+Delegates all GRPO mechanics to TRL 1.2.0. This file wires up:
+  - QLoRA model loading (bitsandbytes 4-bit + LoRA via peft)
+  - Reward function scoring completions via GenesisEnvironment
+  - Dataset construction for TRL
   - train_batch() / train() entry points used by combined_loop.py
 
 Requirements:
-    pip install trl>=0.8 transformers>=4.40 peft>=0.10 accelerate bitsandbytes
+    pip install "trl>=1.2.0" "transformers>=4.40" "peft>=0.10" accelerate bitsandbytes datasets
 
 Environment variables:
     HF_TOKEN    — HuggingFace token
@@ -38,17 +37,14 @@ load_dotenv()
 class GRPOConfig:
     model_name: str = field(default_factory=lambda: os.getenv("MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct"))
     output_dir: str = "checkpoints/grpo"
-    push_to_hub: bool = False
-    hub_repo: str = ""
 
     # Training
     epochs: int = 1
-    group_size: int = 4
+    group_size: int = 4        # num_generations in TRL
     lr: float = 5e-6
-    max_grad_norm: float = 1.0
 
     # Generation
-    max_new_tokens: int = 256
+    max_new_tokens: int = 256  # max_completion_length in TRL
     temperature: float = 0.9
 
     # QLoRA
@@ -64,7 +60,7 @@ class GRPOConfig:
 
 
 # ---------------------------------------------------------------------------
-# Prompt
+# Prompt building
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = textwrap.dedent("""
@@ -74,16 +70,24 @@ _SYSTEM_PROMPT = textwrap.dedent("""
 """).strip()
 
 
-def build_prompt(task: dict) -> str:
-    msgs = [
+def build_prompt_text(task: dict, tokenizer) -> str:
+    """Apply chat template to get a plain string prompt TRL can tokenize."""
+    messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user",   "content": f"TASK:\n{task['description']}\n\nSTARTER:\n```python\n{task.get('starter_code','')}\n```"},
+        {"role": "user",   "content": (
+            f"TASK:\n{task['description']}\n\n"
+            f"STARTER:\n```python\n{task.get('starter_code', '')}\n```"
+        )},
     ]
-    return msgs  # TRL expects a list of messages
+    if hasattr(tokenizer, "apply_chat_template"):
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+    return f"<|system|>{_SYSTEM_PROMPT}\n<|user|>{messages[1]['content']}\n<|assistant|>"
 
 
 # ---------------------------------------------------------------------------
-# Reward function — called by TRL with (completions, **kwargs)
+# Code extraction from model completions
 # ---------------------------------------------------------------------------
 
 def _extract_code(text: str, starter: str) -> str:
@@ -100,26 +104,30 @@ def _extract_code(text: str, starter: str) -> str:
     m = re.search(r"```python\s*(.*?)```", text, re.DOTALL)
     if m:
         return m.group(1).strip()
-    # 3. Raw def/class
+    # 3. Raw def/class/import
     lines = [l for l in text.splitlines() if l.strip()]
     if lines and re.match(r"(def |class |import |from )", lines[0]):
         return text.strip()
     return starter
 
 
-def make_reward_fn(tasks_by_id: dict):
-    """Returns a reward function compatible with TRL 1.2.0 GRPOTrainer.
+# ---------------------------------------------------------------------------
+# Reward function — TRL 1.2.0 calls reward_fn(prompts, completions, **dataset_cols)
+# ---------------------------------------------------------------------------
 
-    TRL calls: reward_fn(prompts, completions, **dataset_extra_columns)
-    task_id comes from the dataset extra column.
-    """
+def make_reward_fn(tasks_by_id: dict):
     from envs.gen_env.server.gen_env_environment import GenesisEnvironment
     from envs.gen_env.models import GenEnvAction
 
-    def reward_fn(prompts: List[str], completions: List[str], task_id: List[str] = None, **kwargs) -> List[float]:
+    def reward_fn(
+        prompts: List[str],
+        completions: List[str],
+        task_id: List[str] = None,
+        **kwargs,
+    ) -> List[float]:
         rewards = []
-        task_ids = task_id or ([""] * len(completions))
-        for completion, tid in zip(completions, task_ids):
+        ids = task_id if task_id is not None else [""] * len(completions)
+        for completion, tid in zip(completions, ids):
             task = tasks_by_id.get(tid)
             if task is None:
                 rewards.append(0.0)
@@ -148,8 +156,6 @@ def make_reward_fn(tasks_by_id: dict):
 class GRPOTrainer:
     def __init__(self, cfg: GRPOConfig):
         self.cfg = cfg
-        self._trl_trainer = None
-        self._tasks_by_id: dict = {}
         self._setup()
 
     def _setup(self):
@@ -158,7 +164,6 @@ class GRPOTrainer:
 
         hf_token = os.getenv("HF_TOKEN", "")
 
-        # Check bitsandbytes
         use_4bit = self.cfg.load_in_4bit and self.cfg.use_lora
         try:
             import bitsandbytes  # noqa
@@ -183,17 +188,17 @@ class GRPOTrainer:
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_compute_dtype=torch.float16,  # T4 supports fp16, not bf16
             )
 
-        mode = "QLoRA 4-bit" if use_4bit else ("LoRA bf16" if self.cfg.use_lora else "bf16")
+        mode = "QLoRA 4-bit" if use_4bit else ("LoRA fp16" if self.cfg.use_lora else "fp16")
         print(f"[GRPO] Loading model ({mode}): {self.cfg.model_name}", flush=True)
         model = AutoModelForCausalLM.from_pretrained(
             self.cfg.model_name,
             token=hf_token,
             trust_remote_code=True,
             quantization_config=bnb_cfg,
-            torch_dtype=None if use_4bit else torch.bfloat16,
+            torch_dtype=None if use_4bit else torch.float16,
             device_map="auto",
         )
         model.resize_token_embeddings(len(self.tokenizer))
@@ -204,54 +209,58 @@ class GRPOTrainer:
                 model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
             else:
                 model.gradient_checkpointing_enable()
-            lora_cfg = LoraConfig(
+            model = get_peft_model(model, LoraConfig(
                 r=self.cfg.lora_r,
                 lora_alpha=self.cfg.lora_alpha,
                 lora_dropout=self.cfg.lora_dropout,
                 target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
                 bias="none",
                 task_type="CAUSAL_LM",
-            )
-            model = get_peft_model(model, lora_cfg)
+            ))
             model.print_trainable_parameters()
 
         self.model = model
-        print(f"[GRPO] Model ready.", flush=True)
+        print("[GRPO] Model ready.", flush=True)
 
     def _make_trl_trainer(self, tasks: List[dict]):
-        """Build a fresh TRL GRPOTrainer for this batch of tasks."""
         from trl import GRPOTrainer as TRLGRPOTrainer, GRPOConfig as TRLGRPOConfig
         from datasets import Dataset
 
-        self._tasks_by_id = {t["id"]: t for t in tasks}
+        tasks_by_id = {t["id"]: t for t in tasks}
 
-        # Dataset: one row per task, prompt is the chat messages list
-        rows = [{"prompt": build_prompt(t), "task_id": t["id"]} for t in tasks]
+        # Build plain-string prompts — TRL requires "prompt" column as strings
+        rows = [
+            {
+                "prompt":  build_prompt_text(t, self.tokenizer),
+                "task_id": t["id"],
+            }
+            for t in tasks
+        ]
         dataset = Dataset.from_list(rows)
 
+        # per_device_train_batch_size=1 (one prompt), steps_per_generation=num_generations
+        # so generation_batch_size = 1 * num_generations = num_generations ✓ (divisible)
         trl_cfg = TRLGRPOConfig(
             output_dir=self.cfg.output_dir,
             num_train_epochs=self.cfg.epochs,
             num_generations=self.cfg.group_size,
+            steps_per_generation=self.cfg.group_size,
             learning_rate=self.cfg.lr,
-            max_grad_norm=self.cfg.max_grad_norm,
             max_completion_length=self.cfg.max_new_tokens,
             temperature=self.cfg.temperature,
-            per_device_train_batch_size=self.cfg.group_size,
-            gradient_accumulation_steps=1,
-            bf16=True,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=self.cfg.group_size,
+            fp16=True,                  # T4 GPU — fp16 not bf16
             logging_steps=1,
-            save_steps=999999,
+            save_strategy="no",
             report_to="none",
         )
 
-        reward_fn = make_reward_fn(self._tasks_by_id)
-
         trainer = TRLGRPOTrainer(
             model=self.model,
+            reward_funcs=make_reward_fn(tasks_by_id),
             args=trl_cfg,
             train_dataset=dataset,
-            reward_funcs=reward_fn,
             processing_class=self.tokenizer,
         )
         return trainer
@@ -265,13 +274,12 @@ class GRPOTrainer:
         trainer = self._make_trl_trainer(tasks)
         result  = trainer.train()
 
-        mean_loss = result.training_loss if hasattr(result, "training_loss") else 0.0
-        # TRL doesn't return mean reward directly — read from log history
+        mean_loss   = getattr(result, "training_loss", 0.0) or 0.0
         mean_reward = 0.0
         if trainer.state.log_history:
-            rewards = [e.get("reward", 0.0) for e in trainer.state.log_history if "reward" in e]
-            if rewards:
-                mean_reward = sum(rewards) / len(rewards)
+            vals = [e["reward"] for e in trainer.state.log_history if "reward" in e]
+            if vals:
+                mean_reward = sum(vals) / len(vals)
 
         print(f"[GRPO] batch done — loss={mean_loss:.4f} mean_reward={mean_reward:.4f}", flush=True)
         return {"mean_loss": mean_loss, "mean_reward": mean_reward, "n_tasks": len(tasks)}
@@ -280,7 +288,7 @@ class GRPOTrainer:
         bp = Path(__file__).parent.parent / "tasks" / "benchmark.json"
         tasks = json.loads(bp.read_text()) if bp.exists() else [{
             "id": "fallback_001",
-            "description": "Write most_frequent(lst).",
+            "description": "Write most_frequent(lst) that returns the most frequent element.",
             "starter_code": "def most_frequent(lst):\n    pass\n",
             "tests": ["assert most_frequent([1,2,2,3])==2"],
         }]
