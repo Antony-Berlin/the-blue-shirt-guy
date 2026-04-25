@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class ToolFlag(str, Enum):
@@ -33,10 +33,19 @@ class ToolRegistry:
         default_factory=lambda: {name: 0 for name in TOOL_NAMES}
     )
 
-    def update(self, episode_reward: float, tools_used: List[str]) -> None:
-        """Update EMA weights for tools that were used in this episode.
+    def update(
+        self,
+        episode_reward: float,
+        tools_used: List[str],
+        entry_grades: Optional[Dict[str, float]] = None,
+    ) -> None:
+        """Update EMA weights for tools used in this episode.
 
-        Attribution is proportional to usage frequency within the trajectory.
+        When entry_grades is provided, each tool's attributed reward is its
+        per-entry grade (last grade seen for that tool name). This gives finer
+        signal than distributing the aggregate episode reward by usage count.
+
+        Falls back to usage-proportional attribution when entry_grades is absent.
         """
         if not tools_used:
             return
@@ -51,8 +60,13 @@ class ToolRegistry:
                 self.ema_weights[tool_name] = 0.5
                 self.usage_counts[tool_name] = 0
 
-            # Attribution: fraction of tool usage × episode reward
-            attributed_reward = episode_reward * (count / total)
+            if entry_grades and tool_name in entry_grades:
+                # Per-entry grade is a direct quality signal for this tool
+                attributed_reward = entry_grades[tool_name]
+            else:
+                # Fallback: proportional share of episode reward
+                attributed_reward = episode_reward * (count / total)
+
             self.ema_weights[tool_name] = (
                 _EMA_ALPHA * attributed_reward
                 + (1 - _EMA_ALPHA) * self.ema_weights[tool_name]

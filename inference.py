@@ -33,11 +33,11 @@ from agent.tool_executor import ToolExecutor
 
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct")
 SEED = int(os.getenv("GEN_ENV_SEED", "0")) or None
 MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1024"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2048"))
 SUCCESS_THRESHOLD = float(os.getenv("SUCCESS_THRESHOLD", "0.5"))
 
 BENCHMARK = "gen_env"
@@ -49,11 +49,11 @@ BENCHMARK = "gen_env"
 _SYSTEM_PROMPT = textwrap.dedent("""
     You are a Python coding assistant solving programming challenges.
     You have access to these tools:
-      - search_code_examples(query) — find similar code in a local corpus
-      - run_tests(code, test_cases) — run assert statements against your code
-      - lint_code(code) — check for syntax/style issues
-      - fetch_docs(library, symbol="") — get Python library documentation
-      - explain_error(traceback_text, code="") — diagnose an error traceback
+      - search_code_examples(query)
+      - run_tests(code, test_cases)
+      - lint_code(code)
+      - fetch_docs(library, symbol="")
+      - explain_error(traceback_text, code="")
 
     Strategy:
     1. Search for related examples first
@@ -62,12 +62,26 @@ _SYSTEM_PROMPT = textwrap.dedent("""
     4. Fix errors using explain_error and lint_code
     5. Submit your final code
 
-    When calling a tool, respond ONLY with JSON:
-    {"action": "call_tool", "tool": "<name>", "args": {<kwargs>}}
+    To call a tool respond ONLY with a JSON object where "action" is the tool name:
+    {"action": "search_code_examples", "query": "..."}
+    {"action": "run_tests", "code": "...", "test_cases": "assert foo(1) == 2"}
+    {"action": "lint_code", "code": "..."}
+    {"action": "fetch_docs", "library": "collections", "symbol": "Counter"}
+    {"action": "explain_error", "traceback_text": "...", "code": "..."}
 
-    When you have a final answer, respond with:
-    {"action": "submit", "code": "<your complete Python solution>"}
+    To submit your final answer:
+    {"action": "submit", "code": "...your complete Python solution..."}
+
+    Respond ONLY with a single JSON object. No prose, no markdown fences.
 """).strip()
+
+_TOOL_ACTIONS = {
+    "search_code_examples",
+    "run_tests",
+    "lint_code",
+    "fetch_docs",
+    "explain_error",
+}
 
 
 def _make_user_prompt(description: str, starter_code: str) -> str:
@@ -79,6 +93,8 @@ def _make_user_prompt(description: str, starter_code: str) -> str:
 
 
 def _extract_json(text: str) -> Optional[dict]:
+    # Strip markdown code fences if present
+    text = re.sub(r"```(?:json)?\s*", "", text).strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
@@ -152,17 +168,33 @@ def run_tool_loop(
 
         action = _extract_json(response_text)
         if action is None:
-            break
+            print(f"[DEBUG] No JSON in response, retrying. text={response_text[:120]!r}", flush=True)
+            continue
 
-        if action.get("action") == "submit":
+        action_name = action.get("action", "")
+
+        if action_name == "submit":
             final_code = action.get("code", starter_code)
             break
 
-        elif action.get("action") == "call_tool":
+        elif action_name in _TOOL_ACTIONS:
+            # Flat schema: {"action": "tool_name", "arg1": ..., "arg2": ...}
+            args = {k: v for k, v in action.items() if k != "action"}
+            tool_result = executor.call(action_name, **args)
+            messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
+
+        elif action_name == "call_tool":
+            # Legacy wrapper schema: {"action": "call_tool", "tool": "...", "args": {...}}
             tool_name = action.get("tool", "")
             args = action.get("args", {})
-            tool_result = executor.call(tool_name, **args)
-            messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
+            if tool_name in _TOOL_ACTIONS:
+                tool_result = executor.call(tool_name, **args)
+                messages.append({"role": "user", "content": f"Tool result:\n{tool_result}"})
+            else:
+                messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {sorted(_TOOL_ACTIONS)}"})
+
+        else:
+            messages.append({"role": "user", "content": f"Unknown action '{action_name}'. Use a tool action or 'submit'."})
 
     return final_code
 
@@ -202,6 +234,8 @@ def main() -> None:
         executor.reset_log()
         final_code = run_tool_loop(client, executor, description, starter_code)
         tool_log = executor.get_log()
+        print(tool_log)
+        print(f"[DEBUG] Final code length: {len(final_code)} chars")
 
         # ── 3. Submit to env ────────────────────────────────────────────────
         action = GenEnvAction(
@@ -225,6 +259,7 @@ def main() -> None:
 
         print(f"[DEBUG] nl_feedback={step_obs.nl_feedback!r}", flush=True)
         print(f"[DEBUG] tool_weights={step_obs.tool_weights}", flush=True)
+        print(f"[DEBUG] tool_grades={step_obs.tool_grades}", flush=True)
 
         score = min(max(reward, 0.0), 1.0)
         success = score >= SUCCESS_THRESHOLD

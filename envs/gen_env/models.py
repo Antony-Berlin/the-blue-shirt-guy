@@ -33,6 +33,10 @@ class GenEnvObservation(Observation):
         default_factory=dict,
         description="EMA performance weight per tool name",
     )
+    tool_grades: List[float] = Field(
+        default_factory=list,
+        description="Per-tool-call grade [0.0, 1.0] in submission order",
+    )
 
 
 class GenEnvState(State):

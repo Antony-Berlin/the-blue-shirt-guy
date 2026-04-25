@@ -23,10 +23,12 @@ try:
     from ..models import GenEnvObservation, GenEnvState, GenEnvAction
     from .rubric import score_reasoning
     from .tool_registry import ToolRegistry
+    from .tool_graders import GraderRouter
 except ImportError:
     from models import GenEnvObservation, GenEnvState, GenEnvAction
     from server.rubric import score_reasoning
     from server.tool_registry import ToolRegistry
+    from server.tool_graders import GraderRouter
 
 _BENCHMARK_PATH = Path(
     os.environ.get(
@@ -114,6 +116,7 @@ class GenesisEnvironment(Environment):
         super().__init__()
         self._benchmark: list = _load_benchmark()
         self._registry = ToolRegistry()
+        self._grader = GraderRouter()
         self._current_task: Optional[dict] = None
         self._episode_id: Optional[str] = None
         self._step_count: int = 0
@@ -177,19 +180,24 @@ class GenesisEnvironment(Environment):
         passed, total = _run_tests_against_code(action.code, tests)
         pass_score = passed / total if total > 0 else 0.0
 
+        # Per-tool-call grades (skips already-graded entries)
+        tool_grades = self._grader.grade_log(action.tool_usage_log)
+        tool_usage_score = sum(tool_grades) / len(tool_grades) if tool_grades else 0.0
+
         reasoning_score, nl_feedback = score_reasoning(
             task["description"], action.code, self._tool_log
         )
 
-        reward = pass_score * 0.7 + reasoning_score * 0.3
+        reward = pass_score * 0.6 + tool_usage_score * 0.2 + reasoning_score * 0.2
 
-        # Attribute reward to tools used in this episode
-        tools_used = [
-            entry.get("tool", "")
+        # Attribute reward to tools using per-entry grades
+        tools_used = [entry.get("tool", "") for entry in self._tool_log if entry.get("tool")]
+        entry_grades = {
+            entry.get("tool", ""): entry.get("grade", 0.0)
             for entry in self._tool_log
             if entry.get("tool")
-        ]
-        self._registry.update(reward, tools_used)
+        }
+        self._registry.update(reward, tools_used, entry_grades)
 
         return GenEnvObservation(
             task_id=task["id"],
@@ -202,8 +210,10 @@ class GenesisEnvironment(Environment):
             done=True,
             nl_feedback=nl_feedback,
             tool_weights=self._registry.snapshot(),
+            tool_grades=tool_grades,
             metadata={
                 "pass_score": pass_score,
+                "tool_usage_score": tool_usage_score,
                 "reasoning_score": reasoning_score,
                 "episode_id": self._episode_id,
             },
