@@ -49,7 +49,6 @@ class GRPOConfig:
 
     # Generation
     max_new_tokens: int = 256
-    max_prompt_length: int = 512
     temperature: float = 0.9
 
     # QLoRA
@@ -109,14 +108,19 @@ def _extract_code(text: str, starter: str) -> str:
 
 
 def make_reward_fn(tasks_by_id: dict):
-    """Returns a reward function compatible with TRL's GRPOTrainer."""
+    """Returns a reward function compatible with TRL 1.2.0 GRPOTrainer.
+
+    TRL calls: reward_fn(prompts, completions, **dataset_extra_columns)
+    task_id comes from the dataset extra column.
+    """
     from envs.gen_env.server.gen_env_environment import GenesisEnvironment
     from envs.gen_env.models import GenEnvAction
 
-    def reward_fn(completions: List[str], task_ids: List[str], **kwargs) -> List[float]:
+    def reward_fn(prompts: List[str], completions: List[str], task_id: List[str] = None, **kwargs) -> List[float]:
         rewards = []
-        for completion, task_id in zip(completions, task_ids):
-            task = tasks_by_id.get(task_id)
+        task_ids = task_id or ([""] * len(completions))
+        for completion, tid in zip(completions, task_ids):
+            task = tasks_by_id.get(tid)
             if task is None:
                 rewards.append(0.0)
                 continue
@@ -127,10 +131,10 @@ def make_reward_fn(tasks_by_id: dict):
                 env._episode_id   = "grpo_train"
                 env._step_count   = 0
                 env._tool_log     = []
-                obs = env.step(GenEnvAction(code=code, task_id=task_id, tool_usage_log=[]))
+                obs = env.step(GenEnvAction(code=code, task_id=tid, tool_usage_log=[]))
                 rewards.append(float(obs.reward or 0.0))
             except Exception as e:
-                print(f"[GRPO] reward error task={task_id}: {e}", flush=True)
+                print(f"[GRPO] reward error task={tid}: {e}", flush=True)
                 rewards.append(0.0)
         return rewards
 
@@ -232,7 +236,6 @@ class GRPOTrainer:
             learning_rate=self.cfg.lr,
             max_grad_norm=self.cfg.max_grad_norm,
             max_completion_length=self.cfg.max_new_tokens,
-            max_prompt_length=self.cfg.max_prompt_length,
             temperature=self.cfg.temperature,
             per_device_train_batch_size=1,
             gradient_accumulation_steps=1,
