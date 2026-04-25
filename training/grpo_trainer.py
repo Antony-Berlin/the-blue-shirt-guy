@@ -231,14 +231,14 @@ class GRPOTrainer:
             num_generations=self.cfg.group_size,
             learning_rate=self.cfg.lr,
             max_grad_norm=self.cfg.max_grad_norm,
-            max_new_tokens=self.cfg.max_new_tokens,
+            max_completion_length=self.cfg.max_new_tokens,
             max_prompt_length=self.cfg.max_prompt_length,
             temperature=self.cfg.temperature,
             per_device_train_batch_size=1,
             gradient_accumulation_steps=1,
             bf16=True,
             logging_steps=1,
-            save_steps=999999,  # don't auto-save mid-batch
+            save_steps=999999,
             report_to="none",
         )
 
@@ -266,7 +266,7 @@ class GRPOTrainer:
         # TRL doesn't return mean reward directly — read from log history
         mean_reward = 0.0
         if trainer.state.log_history:
-            rewards = [e.get("rewards/mean", 0.0) for e in trainer.state.log_history if "rewards/mean" in e]
+            rewards = [e.get("reward", 0.0) for e in trainer.state.log_history if "reward" in e]
             if rewards:
                 mean_reward = sum(rewards) / len(rewards)
 
