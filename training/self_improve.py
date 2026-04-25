@@ -136,9 +136,65 @@ def _save_state(state: Dict) -> None:
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
+def _one_cycle(cycle_num: int, n_episodes: int, dry_run: bool) -> Dict:
+    """Run one self-improvement cycle and return the cycle record dict.
+
+    Callable independently so the combined loop can interleave GRPO steps.
+    """
     from training.tool_architect import apply_improvement
 
+    print(f"\n--- Self-Improve Cycle {cycle_num} ---", flush=True)
+
+    # 1. Baseline evaluation
+    before = evaluate(n_episodes, seeds=list(range(cycle_num * 100, cycle_num * 100 + n_episodes)))
+    print(f"[LOOP] Before: mean_reward={before['mean_reward']:.3f}", flush=True)
+
+    # 2. Build tool flags from weights
+    registry = ToolRegistry()
+    registry.ema_weights.update(before["tool_weights"])
+    tool_flags = {t: registry.flag(t).value for t in before["tool_weights"]}
+    print(f"[LOOP] Tool flags: {tool_flags}", flush=True)
+
+    # 3. Call the Architect
+    improvement = apply_improvement(
+        tool_weights=before["tool_weights"],
+        tool_flags=tool_flags,
+        nl_feedback=before["nl_feedback"],
+        recent_tool_calls=before["tool_logs"],
+        dry_run=dry_run,
+    )
+    print(f"[LOOP] Architect result: {improvement}", flush=True)
+
+    # 4. Post-improvement evaluation
+    after = evaluate(n_episodes, seeds=list(range(cycle_num * 100 + 50, cycle_num * 100 + 50 + n_episodes)))
+    delta = after["mean_reward"] - before["mean_reward"]
+    print(f"[LOOP] After:  mean_reward={after['mean_reward']:.3f}  delta={delta:+.3f}", flush=True)
+
+    # 5. Revert if delta is negative
+    reverted = False
+    if delta < 0 and not dry_run:
+        file_written = improvement.get("file_written")
+        if file_written:
+            reverted = _revert_tool(file_written)
+
+    cycle_record = {
+        "cycle": cycle_num,
+        "before_reward": before["mean_reward"],
+        "after_reward": after["mean_reward"],
+        "delta": delta,
+        "architect_action": improvement.get("action"),
+        "target_tool": improvement.get("target_tool"),
+        "file_written": improvement.get("file_written"),
+        "dry_run": dry_run,
+        "reverted": reverted,
+    }
+
+    status = "REVERTED" if reverted else ("improved" if delta >= 0 else "kept (no backup to revert)")
+    print(f"[LOOP] Cycle {cycle_num} complete. delta={delta:+.3f}  status={status}", flush=True)
+    return cycle_record
+
+
+def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
     state = _load_state()
     start_cycle = state["cycle"]
 
@@ -150,59 +206,10 @@ def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
 
     for cycle_idx in range(n_cycles):
         cycle_num = start_cycle + cycle_idx + 1
-        print(f"\n--- Cycle {cycle_num} ---", flush=True)
-
-        # 1. Baseline evaluation
-        before = evaluate(n_episodes, seeds=list(range(cycle_num * 100, cycle_num * 100 + n_episodes)))
-        print(f"[LOOP] Before: mean_reward={before['mean_reward']:.3f}", flush=True)
-
-        # 2. Build tool flags from weights
-        registry = ToolRegistry()
-        registry.ema_weights.update(before["tool_weights"])
-        tool_flags = {t: registry.flag(t).value for t in before["tool_weights"]}
-
-        print(f"[LOOP] Tool flags: {tool_flags}", flush=True)
-
-        # 3. Call the Architect
-        improvement = apply_improvement(
-            tool_weights=before["tool_weights"],
-            tool_flags=tool_flags,
-            nl_feedback=before["nl_feedback"],
-            recent_tool_calls=before["tool_logs"],
-            dry_run=dry_run,
-        )
-        print(f"[LOOP] Architect result: {improvement}", flush=True)
-
-        # 4. Post-improvement evaluation
-        after = evaluate(n_episodes, seeds=list(range(cycle_num * 100 + 50, cycle_num * 100 + 50 + n_episodes)))
-        delta = after["mean_reward"] - before["mean_reward"]
-        print(f"[LOOP] After:  mean_reward={after['mean_reward']:.3f}  delta={delta:+.3f}", flush=True)
-
-        # 5. Revert if delta is negative
-        reverted = False
-        if delta < 0 and not dry_run:
-            file_written = improvement.get("file_written")
-            if file_written:
-                reverted = _revert_tool(file_written)
-
-        # 6. Record cycle in state
-        cycle_record = {
-            "cycle": cycle_num,
-            "before_reward": before["mean_reward"],
-            "after_reward": after["mean_reward"],
-            "delta": delta,
-            "architect_action": improvement.get("action"),
-            "target_tool": improvement.get("target_tool"),
-            "file_written": improvement.get("file_written"),
-            "dry_run": dry_run,
-            "reverted": reverted,
-        }
+        cycle_record = _one_cycle(cycle_num, n_episodes, dry_run)
         state["cycle"] = cycle_num
         state["history"].append(cycle_record)
         _save_state(state)
-
-        status = "REVERTED" if reverted else ("improved" if delta >= 0 else "kept (no backup to revert)")
-        print(f"\n[LOOP] Cycle {cycle_num} complete. delta={delta:+.3f}  status={status}", flush=True)
         _print_history(state["history"][-5:])
 
     print(f"\n[LOOP] All {n_cycles} cycles complete.", flush=True)

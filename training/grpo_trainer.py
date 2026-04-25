@@ -409,6 +409,50 @@ class GRPOTrainer:
             rewards.append(r)
         return rewards
 
+    def train_batch(self, tasks: List[dict]) -> dict:
+        """Fine-tune on the given task list for one pass (one cycle's worth of GRPO).
+
+        Returns {'mean_loss': float, 'mean_reward': float, 'n_tasks': int}.
+        """
+        import torch
+
+        if not tasks:
+            return {"mean_loss": 0.0, "mean_reward": 0.0, "n_tasks": 0}
+
+        losses, rewards = [], []
+
+        for task in tasks:
+            prompt_text = messages_to_text(self.tokenizer, task["description"], task.get("starter_code", ""))
+            completions  = self._sample_completions(prompt_text)
+            task_rewards = self._score_completions(completions, task)
+            mean_r       = sum(task_rewards) / len(task_rewards)
+            rewards.append(mean_r)
+
+            self.optimizer.zero_grad()
+            loss = grpo_loss(
+                self.model, self.ref_model, self.tokenizer,
+                prompt_text, completions, task_rewards, self.cfg,
+            )
+            if loss.requires_grad:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    filter(lambda p: p.requires_grad, self.model.parameters()),
+                    self.cfg.max_grad_norm,
+                )
+                self.optimizer.step()
+            losses.append(loss.item())
+
+            print(
+                f"[GRPO-BATCH] task={task['id']} loss={loss.item():.4f} "
+                f"mean_reward={mean_r:.4f} rewards={[f'{r:.2f}' for r in task_rewards]}",
+                flush=True,
+            )
+
+        mean_loss   = sum(losses) / len(losses)
+        mean_reward = sum(rewards) / len(rewards)
+        print(f"[GRPO-BATCH] batch complete: mean_loss={mean_loss:.4f} mean_reward={mean_reward:.4f}", flush=True)
+        return {"mean_loss": mean_loss, "mean_reward": mean_reward, "n_tasks": len(tasks)}
+
     def train(self):
         import torch
 
