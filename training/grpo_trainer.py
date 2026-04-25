@@ -169,7 +169,7 @@ class GRPOTrainer:
             import bitsandbytes  # noqa
         except ImportError:
             if use_4bit:
-                print("[GRPO] bitsandbytes not found — falling back to bf16 LoRA", flush=True)
+                print("[GRPO] bitsandbytes not found — falling back to fp16 LoRA", flush=True)
                 use_4bit = False
                 self.cfg.load_in_4bit = False
 
@@ -218,6 +218,10 @@ class GRPOTrainer:
                 task_type="CAUSAL_LM",
             ))
             model.print_trainable_parameters()
+            # Cast all trainable (LoRA) params to float16 — T4 doesn't support bf16
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    param.data = param.data.to(torch.float16)
 
         self.model = model
         print("[GRPO] Model ready.", flush=True)
@@ -251,6 +255,7 @@ class GRPOTrainer:
             per_device_train_batch_size=1,
             gradient_accumulation_steps=self.cfg.group_size,
             fp16=True,                  # T4 GPU — fp16 not bf16
+            bf16=False,                 # explicitly disable bf16
             logging_steps=1,
             save_strategy="no",
             report_to="none",
