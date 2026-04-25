@@ -218,16 +218,6 @@ class GRPOTrainer:
                 task_type="CAUSAL_LM",
             ))
             model.print_trainable_parameters()
-            # Cast all trainable (LoRA) params to float16 — T4 doesn't support bf16
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    param.data = param.data.to(torch.float16)
-
-        # Final safety cast: ensure no bf16 tensors remain (Qwen defaults to bf16)
-        # 4-bit base weights are uint8 (skip), everything else → float16
-        for name, param in model.named_parameters():
-            if param.dtype == torch.bfloat16:
-                param.data = param.data.to(torch.float16)
 
         self.model = model
         print("[GRPO] Model ready.", flush=True)
@@ -260,8 +250,8 @@ class GRPOTrainer:
             temperature=self.cfg.temperature,
             per_device_train_batch_size=1,
             gradient_accumulation_steps=self.cfg.group_size,
-            fp16=True,                  # T4 GPU — fp16 not bf16
-            bf16=False,                 # explicitly disable bf16
+            fp16=False,   # disable AMP scaler — avoids bf16/fp16 unscale errors
+            bf16=False,   # QLoRA base is 4-bit; LoRA adapters train in fp32
             logging_steps=1,
             save_strategy="no",
             report_to="none",
