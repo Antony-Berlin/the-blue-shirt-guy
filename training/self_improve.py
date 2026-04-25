@@ -178,7 +178,14 @@ def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
         delta = after["mean_reward"] - before["mean_reward"]
         print(f"[LOOP] After:  mean_reward={after['mean_reward']:.3f}  delta={delta:+.3f}", flush=True)
 
-        # 5. Record cycle in state
+        # 5. Revert if delta is negative
+        reverted = False
+        if delta < 0 and not dry_run:
+            file_written = improvement.get("file_written")
+            if file_written:
+                reverted = _revert_tool(file_written)
+
+        # 6. Record cycle in state
         cycle_record = {
             "cycle": cycle_num,
             "before_reward": before["mean_reward"],
@@ -188,24 +195,41 @@ def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
             "target_tool": improvement.get("target_tool"),
             "file_written": improvement.get("file_written"),
             "dry_run": dry_run,
+            "reverted": reverted,
         }
         state["cycle"] = cycle_num
         state["history"].append(cycle_record)
         _save_state(state)
 
-        print(f"\n[LOOP] Cycle {cycle_num} complete. delta={delta:+.3f}", flush=True)
+        status = "REVERTED" if reverted else ("improved" if delta >= 0 else "kept (no backup to revert)")
+        print(f"\n[LOOP] Cycle {cycle_num} complete. delta={delta:+.3f}  status={status}", flush=True)
         _print_history(state["history"][-5:])
 
     print(f"\n[LOOP] All {n_cycles} cycles complete.", flush=True)
 
 
+def _revert_tool(file_written: str) -> bool:
+    """Restore the .bak backup for the given tool path. Returns True if reverted."""
+    from pathlib import Path as _Path
+    dest = _Path(file_written)
+    backup = dest.with_suffix(".py.bak")
+    if backup.exists():
+        dest.write_text(backup.read_text())
+        backup.unlink()
+        print(f"[LOOP] Reverted {dest.name} — negative delta, restored from backup", flush=True)
+        return True
+    print(f"[LOOP] No backup found for {dest.name}, cannot revert", flush=True)
+    return False
+
+
 def _print_history(history: List[Dict]) -> None:
-    print("\n  Cycle | Before | After  | Delta  | Action", flush=True)
-    print("  ------|--------|--------|--------|------------------", flush=True)
+    print("\n  Cycle | Before | After  | Delta  | Reverted | Action", flush=True)
+    print("  ------|--------|--------|--------|----------|------------------", flush=True)
     for h in history:
+        rev = "yes" if h.get("reverted") else "no"
         print(
             f"  {h['cycle']:5d} | {h['before_reward']:.3f}  | {h['after_reward']:.3f}  | "
-            f"{h['delta']:+.3f}  | {h['architect_action']}:{h.get('target_tool','?')}",
+            f"{h['delta']:+.3f}  | {rev:8s} | {h['architect_action']}:{h.get('target_tool','?')}",
             flush=True,
         )
 
