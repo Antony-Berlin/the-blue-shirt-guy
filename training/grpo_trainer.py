@@ -167,30 +167,44 @@ def messages_to_text(tokenizer, task_description: str, starter_code: str) -> str
 def score_completion(completion_text: str, task: dict) -> float:
     """Score a single model completion against the Genesis environment.
 
-    The completion is expected to end with a submit action JSON.
-    We extract the code from the submit action (or the whole text as fallback)
-    and run env.step() to get the reward.
+    Extraction priority:
+      1. {"action": "submit", "code": "..."}  — explicit submit action
+      2. Any ```python ... ``` fenced block     — model wrote code in markdown
+      3. Any JSON object with a "code" key      — partial/malformed submit
+      4. starter_code fallback                  — gives 0 reward, still valid
     """
     import re, json as _json
 
     from envs.gen_env.server.gen_env_environment import GenesisEnvironment
-    from envs.gen_env.models import GenEnvAction, GenEnvObservation
-    from agent.tool_executor import ToolExecutor
+    from envs.gen_env.models import GenEnvAction
 
-    # Extract submitted code from the completion
     code = task.get("starter_code", "")
+    text = completion_text.strip()
+
+    # 1. Explicit submit action JSON
     try:
-        text = re.sub(r"```(?:json)?\s*", "", completion_text).strip()
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            data = _json.loads(match.group())
-            if data.get("action") == "submit" and "code" in data:
+        cleaned = re.sub(r"```(?:json)?\s*", "", text).strip()
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if m:
+            data = _json.loads(m.group())
+            if "code" in data:
                 code = data["code"]
     except Exception:
         pass
 
+    # 2. Fenced python block (model ignored JSON format instruction)
+    if code == task.get("starter_code", ""):
+        m = re.search(r"```python\s*(.*?)```", text, re.DOTALL)
+        if m:
+            code = m.group(1).strip()
+
+    # 3. Raw Python code heuristic — starts with def/class/import
+    if code == task.get("starter_code", ""):
+        lines = [l for l in text.splitlines() if l.strip()]
+        if lines and re.match(r"(def |class |import |from )", lines[0]):
+            code = text.strip()
+
     env = GenesisEnvironment()
-    # Prime the env with this specific task
     env._current_task = task
     env._episode_id   = "grpo_train"
     env._step_count   = 0
@@ -225,7 +239,7 @@ def grpo_loss(
     advantages = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
     advantages = advantages.clamp(-cfg.reward_clip, cfg.reward_clip)
 
-    total_loss = torch.tensor(0.0, requires_grad=True)
+    loss_terms = []
 
     for i, (completion, adv) in enumerate(zip(completions, advantages)):
         full_text = prompt_text + completion
@@ -266,10 +280,9 @@ def grpo_loss(
         seq_log_prob = token_log_probs.sum()
         kl           = (token_log_probs - token_ref_log_probs).sum()
 
-        loss_i = -(adv * seq_log_prob - cfg.kl_coef * kl)
-        total_loss = total_loss + loss_i
+        loss_terms.append(-(adv * seq_log_prob - cfg.kl_coef * kl))
 
-    return total_loss / len(completions)
+    return torch.stack(loss_terms).mean()
 
 
 # ---------------------------------------------------------------------------
@@ -379,12 +392,19 @@ class GRPOTrainer:
             return_tensors="pt",
             truncation=True,
             max_length=self.cfg.max_prompt_tokens,
+            padding=False,
         )
-        input_ids = enc["input_ids"].to(self.model.device)
+        input_ids      = enc["input_ids"].to(self.model.device)
+        attention_mask = enc["attention_mask"].to(self.model.device)
+
+        # Repeat prompt G times for batch sampling
+        input_ids_rep      = input_ids.repeat(self.cfg.group_size, 1)
+        attention_mask_rep = attention_mask.repeat(self.cfg.group_size, 1)
 
         with torch.no_grad():
             outputs = self.model.generate(
-                input_ids.repeat(self.cfg.group_size, 1),
+                input_ids_rep,
+                attention_mask=attention_mask_rep,
                 max_new_tokens=self.cfg.max_new_tokens,
                 temperature=self.cfg.temperature,
                 do_sample=True,
@@ -392,10 +412,11 @@ class GRPOTrainer:
             )
 
         # Decode only the newly generated tokens
-        completions = []
-        for out in outputs:
-            new_tokens = out[input_ids.shape[1]:]
-            completions.append(self.tokenizer.decode(new_tokens, skip_special_tokens=True))
+        prompt_len = input_ids.shape[1]
+        completions = [
+            self.tokenizer.decode(out[prompt_len:], skip_special_tokens=True)
+            for out in outputs
+        ]
         return completions
 
     def _score_completions(self, completions: List[str], task: dict) -> List[float]:
