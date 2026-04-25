@@ -142,9 +142,11 @@ def run_tool_loop(
     description: str,
     starter_code: str,
     env=None,
-) -> str:
-    """Run the iterative tool-use loop; return final code string.
+) -> tuple:
+    """Run the iterative tool-use loop; return (final_code, step_log).
 
+    step_log is a list of dicts: {step, action, reward, done, error}
+    — one entry per tool call plus the final submit action.
     If env is provided, each tool call is graded immediately via
     env.grade_tool_call() and the grade is fed back to the agent as context.
     """
@@ -155,6 +157,8 @@ def run_tool_loop(
     ]
 
     final_code = starter_code
+    step_log: List[Dict[str, Any]] = []
+    step_num = 0
 
     for _ in range(MAX_STEPS):
         try:
@@ -181,10 +185,10 @@ def run_tool_loop(
 
         if action_name == "submit":
             final_code = action.get("code", starter_code)
+            # Submit step logged by main() after env.step() returns the real reward
             break
 
         elif action_name in tool_actions or action_name == "call_tool":
-            # Resolve tool name and args for both flat and legacy wrapper schemas
             if action_name == "call_tool":
                 tool_name = action.get("tool", "")
                 args = action.get("args", {})
@@ -197,22 +201,36 @@ def run_tool_loop(
                 continue
 
             tool_result = executor.call(tool_name, **args)
+            step_num += 1
 
-            # Grade this call immediately and feed the score back to the agent
             if env is not None:
-                entry = executor.get_log()[-1]  # the entry just appended
+                entry = executor.get_log()[-1]
                 grade = env.grade_tool_call(entry)
                 grade_hint = f"\n[Tool quality score: {grade:.2f}/1.0]"
-                print(f"[DEBUG] tool={tool_name} grade={grade:.2f}", flush=True)
+                error_val = entry.get("error")
+                step_log.append({
+                    "step": step_num,
+                    "action": f"{tool_name}({', '.join(f'{k}={str(v)[:40]}' for k,v in args.items())})",
+                    "reward": grade,
+                    "done": False,
+                    "error": str(error_val)[:80] if error_val else None,
+                })
             else:
                 grade_hint = ""
+                step_log.append({
+                    "step": step_num,
+                    "action": f"{tool_name}(...)",
+                    "reward": 0.0,
+                    "done": False,
+                    "error": None,
+                })
 
             messages.append({"role": "user", "content": f"Tool result:\n{tool_result}{grade_hint}"})
 
         else:
             messages.append({"role": "user", "content": f"Unknown action '{action_name}'. Use a tool action or 'submit'."})
 
-    return final_code
+    return final_code, step_log
 
 
 # ---------------------------------------------------------------------------
@@ -248,10 +266,12 @@ def main() -> None:
 
         # ── 2. Tool-use loop (local) ────────────────────────────────────────
         executor.reset_log()
-        final_code = run_tool_loop(client, executor, description, starter_code, env=env)
+        final_code, step_log = run_tool_loop(client, executor, description, starter_code, env=env)
         tool_log = executor.get_log()
-        print(tool_log)
-        print(f"[DEBUG] Final code length: {len(final_code)} chars")
+
+        # Emit [STEP] for every tool call with its grade as the per-step reward
+        for s in step_log:
+            log_step(step=s["step"], action=s["action"], reward=s["reward"], done=False, error=s["error"])
 
         # ── 3. Submit to env ────────────────────────────────────────────────
         action = GenEnvAction(
@@ -263,15 +283,17 @@ def main() -> None:
 
         reward = step_obs.reward or 0.0
         done = step_obs.done
+        rewards.extend([s["reward"] for s in step_log])
         rewards.append(reward)
-        steps_taken = 1
+        submit_step = len(step_log) + 1
+        steps_taken = submit_step
 
         tools_used = [e["tool"] for e in tool_log]
         action_summary = (
             f"submit(task={task_id}, tools={tools_used}, "
             f"tests={step_obs.tests_passed}/{step_obs.tests_total})"
         )
-        log_step(step=1, action=action_summary, reward=reward, done=done, error=None)
+        log_step(step=submit_step, action=action_summary, reward=reward, done=done, error=None)
 
         print(f"[DEBUG] nl_feedback={step_obs.nl_feedback!r}", flush=True)
         print(f"[DEBUG] tool_weights={step_obs.tool_weights}", flush=True)

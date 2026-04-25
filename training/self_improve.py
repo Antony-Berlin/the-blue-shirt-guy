@@ -53,7 +53,7 @@ def _run_episode(seed: int = None) -> Dict:
     executor.reset_log()
     obs = env.reset(seed=seed)
 
-    final_code = run_tool_loop(
+    final_code, _ = run_tool_loop(
         client, executor,
         obs.task_description,
         obs.starter_code,
