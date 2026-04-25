@@ -6,61 +6,67 @@ each with the Genesis environment reward, then update using the GRPO objective:
 
     L_GRPO = -E[ (r_i - mean(r)) / std(r) * log π(y_i|x) ]
 
-This avoids a separate critic model: the relative rank within a group is the
-advantage estimate.
+Memory strategy for 14-16 GiB GPUs:
+  - QLoRA: 4-bit quantised base + LoRA adapters (requires bitsandbytes)
+    Reduces 7B from ~14 GiB to ~5 GiB, leaving ~9 GiB for activations + ref.
+  - Reference model also loaded in 4-bit (frozen, inference-only) ~5 GiB.
+  - Completions sampled ONE AT A TIME — no G× VRAM spike from batched generate.
+  - Gradients accumulated one completion at a time — backward() inside loop,
+    activations freed immediately, no simultaneous G forward passes in VRAM.
+  - Gradient checkpointing enabled — trades compute for activation memory.
+  - torch.cuda.empty_cache() after every task.
 
 Usage:
-    # Basic run (uses .env for model + API key)
     python training/grpo_trainer.py
+    python training/grpo_trainer.py --model Qwen/Qwen2.5-Coder-7B-Instruct \\
+        --epochs 3 --group-size 4 --lr 1e-5
 
-    # Custom settings
-    python training/grpo_trainer.py \\
-        --model  Qwen/Qwen2.5-Coder-7B-Instruct \\
-        --epochs 3 \\
-        --group-size 4 \\
-        --lr 1e-5 \\
-        --output-dir checkpoints/grpo_v1
+Requirements:
+    pip install transformers>=4.40 peft>=0.10 accelerate bitsandbytes
 
-Requirements (install separately):
-    pip install transformers>=4.40 peft>=0.10 trl>=0.8 accelerate bitsandbytes
-
-Environment variables (from .env):
-    HF_TOKEN       — HuggingFace token (model download + optional push)
-    MODEL_NAME     — base model to fine-tune (overridden by --model flag)
-    API_BASE_URL   — used for reward evaluation episodes
+Environment variables (.env):
+    HF_TOKEN    — HuggingFace token
+    MODEL_NAME  — base model to fine-tune (overridden by --model flag)
 """
 
 import argparse
 import os
 import sys
 import json
-import math
 import random
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv()
 
+
 # ---------------------------------------------------------------------------
-# Lazy imports — only pulled in after argument parsing so --help is instant
+# Dependency helpers
 # ---------------------------------------------------------------------------
 
 def _require(pkg: str):
-    """Import a package, raising a clear error if missing."""
     import importlib
     try:
         return importlib.import_module(pkg)
     except ImportError as e:
         raise SystemExit(
             f"\nMissing dependency: {pkg}\n"
-            f"Install with: pip install transformers peft trl accelerate bitsandbytes\n"
-            f"Original error: {e}"
+            f"Install: pip install transformers peft accelerate bitsandbytes\n"
+            f"Error: {e}"
         )
+
+
+def _qlora_available() -> bool:
+    try:
+        import bitsandbytes  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -77,29 +83,26 @@ class GRPOConfig:
 
     # Training
     epochs: int = 2
-    batch_size: int = 1          # tasks per gradient step (memory-limited)
-    group_size: int = 4          # completions sampled per prompt (G in GRPO)
+    group_size: int = 4       # G — completions sampled per prompt
     lr: float = 5e-6
     max_grad_norm: float = 1.0
-    warmup_steps: int = 10
     save_steps: int = 50
 
-    # Sampling
+    # Sampling — kept small to fit 14 GiB GPU
     temperature: float = 0.9
-    max_new_tokens: int = 512
-    max_prompt_tokens: int = 1024
+    max_new_tokens: int = 256  # enough for a JSON submit action
+    max_prompt_tokens: int = 768
 
-    # LoRA / QLoRA
+    # QLoRA — auto-disabled if bitsandbytes not installed
     use_lora: bool = True
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    load_in_4bit: bool = True    # QLoRA; set False for full-precision LoRA
+    load_in_4bit: bool = True  # QLoRA; falls back to bf16 if bitsandbytes missing
 
     # GRPO
-    kl_coef: float = 0.04        # KL penalty weight against reference policy
-    gamma: float = 0.99          # discount for multi-turn reward (unused in single-turn)
-    reward_clip: float = 5.0     # clip |advantage| to this value
+    kl_coef: float = 0.04
+    reward_clip: float = 5.0
 
     # Evaluation
     eval_episodes: int = 3
@@ -149,39 +152,36 @@ def build_prompt(task_description: str, starter_code: str) -> str:
 
 
 def messages_to_text(tokenizer, task_description: str, starter_code: str) -> str:
-    """Build a single text prompt suitable for the model's chat template."""
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user",   "content": build_prompt(task_description, starter_code)},
     ]
     if hasattr(tokenizer, "apply_chat_template"):
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    # Fallback: simple concatenation
     return f"<|system|>{_SYSTEM_PROMPT}\n<|user|>{build_prompt(task_description, starter_code)}\n<|assistant|>"
 
 
 # ---------------------------------------------------------------------------
-# Reward function — runs one full episode in the Genesis env
+# Reward function
 # ---------------------------------------------------------------------------
 
 def score_completion(completion_text: str, task: dict) -> float:
     """Score a single model completion against the Genesis environment.
 
     Extraction priority:
-      1. {"action": "submit", "code": "..."}  — explicit submit action
-      2. Any ```python ... ``` fenced block     — model wrote code in markdown
-      3. Any JSON object with a "code" key      — partial/malformed submit
-      4. starter_code fallback                  — gives 0 reward, still valid
+      1. {"action": "submit", "code": "..."}  — explicit submit JSON
+      2. ```python ... ```                     — fenced code block
+      3. Raw def/class/import lines            — model wrote code directly
+      4. starter_code fallback                 — 0 reward
     """
     import re, json as _json
-
     from envs.gen_env.server.gen_env_environment import GenesisEnvironment
     from envs.gen_env.models import GenEnvAction
 
     code = task.get("starter_code", "")
     text = completion_text.strip()
 
-    # 1. Explicit submit action JSON
+    # 1. JSON with "code" key (submit action or partial)
     try:
         cleaned = re.sub(r"```(?:json)?\s*", "", text).strip()
         m = re.search(r"\{.*\}", cleaned, re.DOTALL)
@@ -192,13 +192,13 @@ def score_completion(completion_text: str, task: dict) -> float:
     except Exception:
         pass
 
-    # 2. Fenced python block (model ignored JSON format instruction)
+    # 2. Fenced python block
     if code == task.get("starter_code", ""):
         m = re.search(r"```python\s*(.*?)```", text, re.DOTALL)
         if m:
             code = m.group(1).strip()
 
-    # 3. Raw Python code heuristic — starts with def/class/import
+    # 3. Raw Python heuristic
     if code == task.get("starter_code", ""):
         lines = [l for l in text.splitlines() if l.strip()]
         if lines and re.match(r"(def |class |import |from )", lines[0]):
@@ -209,17 +209,15 @@ def score_completion(completion_text: str, task: dict) -> float:
     env._episode_id   = "grpo_train"
     env._step_count   = 0
     env._tool_log     = []
-
-    action   = GenEnvAction(code=code, task_id=task["id"], tool_usage_log=[])
-    step_obs = env.step(action)
-    return float(step_obs.reward or 0.0)
+    obs = env.step(GenEnvAction(code=code, task_id=task["id"], tool_usage_log=[]))
+    return float(obs.reward or 0.0)
 
 
 # ---------------------------------------------------------------------------
-# GRPO training step
+# GRPO loss — memory-efficient gradient accumulation
 # ---------------------------------------------------------------------------
 
-def grpo_loss(
+def grpo_loss_and_backward(
     model,
     ref_model,
     tokenizer,
@@ -227,66 +225,70 @@ def grpo_loss(
     completions: List[str],
     rewards: List[float],
     cfg: GRPOConfig,
-) -> "torch.Tensor":
-    """Compute GRPO loss for one prompt with G completions."""
+) -> float:
+    """Compute per-completion GRPO loss and call backward() immediately.
+
+    Processes one completion at a time so only one forward pass worth of
+    activations lives in VRAM at any moment. Returns mean scalar loss.
+    """
     import torch
 
     rewards_t = torch.tensor(rewards, dtype=torch.float32)
     if rewards_t.std() < 1e-8:
-        # All rewards identical — no gradient signal
-        return torch.tensor(0.0, requires_grad=True)
+        return 0.0  # all identical rewards — no gradient signal
 
     advantages = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
     advantages = advantages.clamp(-cfg.reward_clip, cfg.reward_clip)
 
-    loss_terms = []
+    # Pre-compute prompt token length once (same for every completion)
+    prompt_ids = tokenizer(prompt_text, return_tensors="pt")["input_ids"]
+    prompt_len = prompt_ids.shape[1] - 1  # -1 for the shift in loss computation
 
-    for i, (completion, adv) in enumerate(zip(completions, advantages)):
-        full_text = prompt_text + completion
+    scalar_losses = []
+
+    for completion, adv in zip(completions, advantages):
         enc = tokenizer(
-            full_text,
+            prompt_text + completion,
             return_tensors="pt",
             truncation=True,
             max_length=cfg.max_prompt_tokens + cfg.max_new_tokens,
         )
         input_ids = enc["input_ids"].to(model.device)
+        labels    = input_ids[:, 1:]          # shifted right
+        comp_ids  = labels[:, prompt_len:]    # completion portion only
 
+        # Reference log-probs (no grad — free tensors immediately)
         with torch.no_grad():
-            ref_logits = ref_model(input_ids).logits
+            ref_lp_all = torch.nn.functional.log_softmax(
+                ref_model(input_ids).logits[:, :-1, :], dim=-1
+            )
+        ref_lp = ref_lp_all[:, prompt_len:, :].gather(
+            2, comp_ids.unsqueeze(-1)
+        ).squeeze(-1).sum()
+        del ref_lp_all
 
-        logits = model(input_ids).logits
+        # Policy log-probs (with grad)
+        lp_all = torch.nn.functional.log_softmax(
+            model(input_ids).logits[:, :-1, :], dim=-1
+        )
+        lp = lp_all[:, prompt_len:, :].gather(
+            2, comp_ids.unsqueeze(-1)
+        ).squeeze(-1).sum()
+        del lp_all
 
-        # Shift: labels = input_ids[1:], logits = logits[:-1]
-        shift_logits     = logits[:, :-1, :]
-        shift_ref_logits = ref_logits[:, :-1, :]
-        shift_labels     = input_ids[:, 1:]
+        kl   = lp - ref_lp.detach()
+        loss = -(adv.to(model.device) * lp - cfg.kl_coef * kl) / len(completions)
 
-        log_probs     = torch.nn.functional.log_softmax(shift_logits,     dim=-1)
-        ref_log_probs = torch.nn.functional.log_softmax(shift_ref_logits, dim=-1)
+        # backward() frees activations immediately (retain_graph=False default)
+        loss.backward()
+        scalar_losses.append(loss.item())
+        del input_ids, labels, comp_ids, lp, ref_lp, kl, loss
 
-        # Only consider completion tokens (not prompt tokens)
-        prompt_enc = tokenizer(prompt_text, return_tensors="pt")
-        prompt_len = prompt_enc["input_ids"].shape[1] - 1  # -1 for shift
-
-        completion_log_probs     = log_probs[:, prompt_len:, :]
-        completion_ref_log_probs = ref_log_probs[:, prompt_len:, :]
-        completion_labels        = shift_labels[:, prompt_len:]
-
-        # Gather log probs for the actual tokens
-        token_log_probs     = completion_log_probs.gather(2, completion_labels.unsqueeze(-1)).squeeze(-1)
-        token_ref_log_probs = completion_ref_log_probs.gather(2, completion_labels.unsqueeze(-1)).squeeze(-1)
-
-        # Sequence log prob + KL penalty
-        seq_log_prob = token_log_probs.sum()
-        kl           = (token_log_probs - token_ref_log_probs).sum()
-
-        loss_terms.append(-(adv * seq_log_prob - cfg.kl_coef * kl))
-
-    return torch.stack(loss_terms).mean()
+    return sum(scalar_losses)
 
 
 # ---------------------------------------------------------------------------
-# Main trainer
+# Trainer
 # ---------------------------------------------------------------------------
 
 class GRPOTrainer:
@@ -295,23 +297,35 @@ class GRPOTrainer:
         self._setup()
 
     def _setup(self):
-        torch     = _require("torch")
-        transformers = _require("transformers")
+        _require("torch")
+        _require("transformers")
         import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+        from transformers import AutoTokenizer, AutoModelForCausalLM
 
-        hf_token = os.getenv("HF_TOKEN", "")
-        print(f"[GRPO] Loading tokenizer: {self.cfg.model_name}")
+        hf_token  = os.getenv("HF_TOKEN", "")
+        qlora_ok  = _qlora_available()
+        use_4bit  = self.cfg.load_in_4bit and self.cfg.use_lora
+
+        if use_4bit and not qlora_ok:
+            print(
+                "[GRPO] WARNING: bitsandbytes not installed — falling back to bf16 LoRA.\n"
+                "         pip install bitsandbytes  (Linux/CUDA only)",
+                flush=True,
+            )
+            self.cfg.load_in_4bit = False
+            use_4bit = False
+
+        print(f"[GRPO] Loading tokenizer: {self.cfg.model_name}", flush=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.cfg.model_name,
-            token=hf_token,
-            trust_remote_code=True,
+            self.cfg.model_name, token=hf_token, trust_remote_code=True,
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        # Add a real pad token so attention_mask is unambiguous
+        if self.tokenizer.pad_token_id is None or \
+                self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
+            self.tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
 
         bnb_cfg = None
-        if self.cfg.load_in_4bit:
+        if use_4bit:
             from transformers import BitsAndBytesConfig
             bnb_cfg = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -320,40 +334,51 @@ class GRPOTrainer:
                 bnb_4bit_compute_dtype=torch.bfloat16,
             )
 
-        print(f"[GRPO] Loading model: {self.cfg.model_name} (4bit={self.cfg.load_in_4bit})")
+        mode = "QLoRA 4-bit" if use_4bit else ("LoRA bf16" if self.cfg.use_lora else "full bf16")
+        print(f"[GRPO] Loading policy model ({mode}): {self.cfg.model_name}", flush=True)
         model = AutoModelForCausalLM.from_pretrained(
             self.cfg.model_name,
             token=hf_token,
             trust_remote_code=True,
             quantization_config=bnb_cfg,
+            torch_dtype=None if use_4bit else torch.bfloat16,
             device_map="auto",
         )
+        model.resize_token_embeddings(len(self.tokenizer))
 
         if self.cfg.use_lora:
+            _require("peft")
             from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-            if self.cfg.load_in_4bit:
-                model = prepare_model_for_kbit_training(model)
-            lora_cfg = LoraConfig(
+            if use_4bit:
+                model = prepare_model_for_kbit_training(
+                    model, use_gradient_checkpointing=True
+                )
+            else:
+                model.gradient_checkpointing_enable()
+            model = get_peft_model(model, LoraConfig(
                 r=self.cfg.lora_r,
                 lora_alpha=self.cfg.lora_alpha,
                 lora_dropout=self.cfg.lora_dropout,
                 target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
                 bias="none",
                 task_type="CAUSAL_LM",
-            )
-            model = get_peft_model(model, lora_cfg)
+            ))
             model.print_trainable_parameters()
+        else:
+            model.gradient_checkpointing_enable()
 
         self.model = model
-        # Frozen reference model for KL penalty
-        print("[GRPO] Loading reference model (frozen)...")
+
+        print("[GRPO] Loading reference model (frozen 4-bit)...", flush=True)
         self.ref_model = AutoModelForCausalLM.from_pretrained(
             self.cfg.model_name,
             token=hf_token,
             trust_remote_code=True,
             quantization_config=bnb_cfg,
+            torch_dtype=None if use_4bit else torch.bfloat16,
             device_map="auto",
         )
+        self.ref_model.resize_token_embeddings(len(self.tokenizer))
         for p in self.ref_model.parameters():
             p.requires_grad_(False)
 
@@ -361,204 +386,157 @@ class GRPOTrainer:
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=self.cfg.lr,
         )
-
         Path(self.cfg.output_dir).mkdir(parents=True, exist_ok=True)
-        print(f"[GRPO] Output dir: {self.cfg.output_dir}")
+        print(f"[GRPO] Ready. Output: {self.cfg.output_dir}", flush=True)
+
+    # ── helpers ────────────────────────────────────────────────────────────
 
     def _load_tasks(self) -> List[dict]:
-        benchmark_path = Path(__file__).parent.parent / "tasks" / "benchmark.json"
-        if benchmark_path.exists():
-            tasks = json.loads(benchmark_path.read_text())
-            print(f"[GRPO] Loaded {len(tasks)} tasks from benchmark.json")
+        bp = Path(__file__).parent.parent / "tasks" / "benchmark.json"
+        if bp.exists():
+            tasks = json.loads(bp.read_text())
+            print(f"[GRPO] {len(tasks)} tasks loaded")
             return tasks
-        # Fallback single task
-        return [{
-            "id": "fallback_001",
-            "description": "Write a function most_frequent(lst) that returns the most frequently occurring element.",
-            "starter_code": "def most_frequent(lst):\n    pass\n",
-            "difficulty": "easy",
-            "tests": [
-                "assert most_frequent([1, 2, 2, 3]) == 2",
-                "assert most_frequent(['a', 'b', 'a']) == 'a'",
-            ],
-        }]
+        return [{"id": "fallback_001",
+                 "description": "Write most_frequent(lst).",
+                 "starter_code": "def most_frequent(lst):\n    pass\n",
+                 "difficulty": "easy",
+                 "tests": ["assert most_frequent([1,2,2,3])==2"]}]
 
-    def _sample_completions(self, prompt_text: str) -> List[str]:
-        """Sample G completions for one prompt."""
+    def _sample_one(self, prompt_text: str) -> str:
+        """Generate a single completion — called G times to keep VRAM flat."""
         import torch
-
         enc = self.tokenizer(
-            prompt_text,
-            return_tensors="pt",
-            truncation=True,
-            max_length=self.cfg.max_prompt_tokens,
-            padding=False,
+            prompt_text, return_tensors="pt",
+            truncation=True, max_length=self.cfg.max_prompt_tokens, padding=False,
         )
-        input_ids      = enc["input_ids"].to(self.model.device)
-        attention_mask = enc["attention_mask"].to(self.model.device)
-
-        # Repeat prompt G times for batch sampling
-        input_ids_rep      = input_ids.repeat(self.cfg.group_size, 1)
-        attention_mask_rep = attention_mask.repeat(self.cfg.group_size, 1)
-
+        ids  = enc["input_ids"].to(self.model.device)
+        mask = enc["attention_mask"].to(self.model.device)
         with torch.no_grad():
-            outputs = self.model.generate(
-                input_ids_rep,
-                attention_mask=attention_mask_rep,
+            out = self.model.generate(
+                ids, attention_mask=mask,
                 max_new_tokens=self.cfg.max_new_tokens,
                 temperature=self.cfg.temperature,
                 do_sample=True,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
+        return self.tokenizer.decode(out[0][ids.shape[1]:], skip_special_tokens=True)
 
-        # Decode only the newly generated tokens
-        prompt_len = input_ids.shape[1]
-        completions = [
-            self.tokenizer.decode(out[prompt_len:], skip_special_tokens=True)
-            for out in outputs
-        ]
-        return completions
+    def _sample_completions(self, prompt_text: str) -> List[str]:
+        return [self._sample_one(prompt_text) for _ in range(self.cfg.group_size)]
 
     def _score_completions(self, completions: List[str], task: dict) -> List[float]:
-        rewards = []
+        out = []
         for c in completions:
             try:
-                r = score_completion(c, task)
+                out.append(score_completion(c, task))
             except Exception as e:
-                print(f"[GRPO] Scoring error: {e}")
-                r = 0.0
-            rewards.append(r)
-        return rewards
+                print(f"[GRPO] scoring error: {e}", flush=True)
+                out.append(0.0)
+        return out
+
+    def _flush(self):
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+
+    def _step(self, task: dict) -> tuple:
+        """One GRPO step on a single task. Returns (loss, mean_reward)."""
+        prompt      = messages_to_text(self.tokenizer, task["description"], task.get("starter_code", ""))
+        completions = self._sample_completions(prompt)
+        rewards     = self._score_completions(completions, task)
+        mean_r      = sum(rewards) / len(rewards)
+
+        self.optimizer.zero_grad()
+        loss_val = grpo_loss_and_backward(
+            self.model, self.ref_model, self.tokenizer,
+            prompt, completions, rewards, self.cfg,
+        )
+        if loss_val != 0.0:
+            import torch
+            torch.nn.utils.clip_grad_norm_(
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                self.cfg.max_grad_norm,
+            )
+            self.optimizer.step()
+        self._flush()
+        return loss_val, mean_r, rewards
+
+    # ── public API ─────────────────────────────────────────────────────────
 
     def train_batch(self, tasks: List[dict]) -> dict:
-        """Fine-tune on the given task list for one pass (one cycle's worth of GRPO).
+        """Fine-tune on the given task list for one pass.
 
-        Returns {'mean_loss': float, 'mean_reward': float, 'n_tasks': int}.
+        Returns {'mean_loss', 'mean_reward', 'n_tasks'}.
         """
-        import torch
-
         if not tasks:
             return {"mean_loss": 0.0, "mean_reward": 0.0, "n_tasks": 0}
 
         losses, rewards = [], []
-
         for task in tasks:
-            prompt_text = messages_to_text(self.tokenizer, task["description"], task.get("starter_code", ""))
-            completions  = self._sample_completions(prompt_text)
-            task_rewards = self._score_completions(completions, task)
-            mean_r       = sum(task_rewards) / len(task_rewards)
+            loss_val, mean_r, task_rewards = self._step(task)
+            losses.append(loss_val)
             rewards.append(mean_r)
-
-            self.optimizer.zero_grad()
-            loss = grpo_loss(
-                self.model, self.ref_model, self.tokenizer,
-                prompt_text, completions, task_rewards, self.cfg,
-            )
-            if loss.requires_grad:
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    filter(lambda p: p.requires_grad, self.model.parameters()),
-                    self.cfg.max_grad_norm,
-                )
-                self.optimizer.step()
-            losses.append(loss.item())
-
             print(
-                f"[GRPO-BATCH] task={task['id']} loss={loss.item():.4f} "
+                f"[GRPO-BATCH] task={task['id']} loss={loss_val:.4f} "
                 f"mean_reward={mean_r:.4f} rewards={[f'{r:.2f}' for r in task_rewards]}",
                 flush=True,
             )
 
-        mean_loss   = sum(losses) / len(losses)
-        mean_reward = sum(rewards) / len(rewards)
-        print(f"[GRPO-BATCH] batch complete: mean_loss={mean_loss:.4f} mean_reward={mean_reward:.4f}", flush=True)
-        return {"mean_loss": mean_loss, "mean_reward": mean_reward, "n_tasks": len(tasks)}
+        ml = sum(losses) / len(losses)
+        mr = sum(rewards) / len(rewards)
+        print(f"[GRPO-BATCH] done — mean_loss={ml:.4f} mean_reward={mr:.4f}", flush=True)
+        return {"mean_loss": ml, "mean_reward": mr, "n_tasks": len(tasks)}
 
     def train(self):
-        import torch
-
-        tasks    = self._load_tasks()
-        n_tasks  = len(tasks)
-        step     = 0
-
-        print(f"\n[GRPO] Starting training: epochs={self.cfg.epochs} tasks={n_tasks} G={self.cfg.group_size}")
+        tasks = self._load_tasks()
+        step  = 0
+        print(f"\n[GRPO] epochs={self.cfg.epochs} tasks={len(tasks)} G={self.cfg.group_size}", flush=True)
 
         for epoch in range(self.cfg.epochs):
             random.shuffle(tasks)
-            epoch_losses = []
-            epoch_rewards = []
-
-            for task_idx, task in enumerate(tasks):
-                prompt_text = messages_to_text(self.tokenizer, task["description"], task.get("starter_code", ""))
-
-                # Sample G completions
-                completions = self._sample_completions(prompt_text)
-                rewards     = self._score_completions(completions, task)
-                mean_r      = sum(rewards) / len(rewards)
-                epoch_rewards.append(mean_r)
-
-                # GRPO loss
-                self.optimizer.zero_grad()
-                loss = grpo_loss(
-                    self.model, self.ref_model, self.tokenizer,
-                    prompt_text, completions, rewards, self.cfg,
-                )
-
-                if loss.requires_grad:
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(
-                        filter(lambda p: p.requires_grad, self.model.parameters()),
-                        self.cfg.max_grad_norm,
-                    )
-                    self.optimizer.step()
-
-                epoch_losses.append(loss.item())
+            ep_losses, ep_rewards = [], []
+            for idx, task in enumerate(tasks):
+                loss_val, mean_r, _ = self._step(task)
+                ep_losses.append(loss_val)
+                ep_rewards.append(mean_r)
                 step += 1
-
-                if step % 10 == 0 or task_idx == 0:
+                if step % 10 == 0 or idx == 0:
                     print(
-                        f"[GRPO] epoch={epoch+1}/{self.cfg.epochs} "
-                        f"step={step} task={task['id']} "
-                        f"loss={loss.item():.4f} mean_reward={mean_r:.4f} "
-                        f"rewards={[f'{r:.2f}' for r in rewards]}"
+                        f"[GRPO] e={epoch+1} step={step} task={task['id']} "
+                        f"loss={loss_val:.4f} reward={mean_r:.4f}",
+                        flush=True,
                     )
-
                 if step % self.cfg.save_steps == 0:
                     self._save(f"step_{step}")
 
-            mean_epoch_loss   = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
-            mean_epoch_reward = sum(epoch_rewards) / len(epoch_rewards) if epoch_rewards else 0.0
-            print(
-                f"\n[GRPO] Epoch {epoch+1} complete — "
-                f"mean_loss={mean_epoch_loss:.4f}  mean_reward={mean_epoch_reward:.4f}\n"
-            )
+            ml = sum(ep_losses)  / len(ep_losses)  if ep_losses  else 0.0
+            mr = sum(ep_rewards) / len(ep_rewards) if ep_rewards else 0.0
+            print(f"\n[GRPO] Epoch {epoch+1} — loss={ml:.4f} reward={mr:.4f}\n", flush=True)
             self._save(f"epoch_{epoch+1}")
 
-        print("[GRPO] Training complete.")
+        print("[GRPO] Training complete.", flush=True)
         self._save("final")
 
     def _save(self, tag: str):
         out = Path(self.cfg.output_dir) / tag
         self.model.save_pretrained(str(out))
         self.tokenizer.save_pretrained(str(out))
-        print(f"[GRPO] Saved checkpoint: {out}")
-
+        print(f"[GRPO] Saved: {out}", flush=True)
         if self.cfg.push_to_hub and self.cfg.hub_repo:
             try:
                 self.model.push_to_hub(self.cfg.hub_repo, commit_message=f"grpo {tag}")
-                print(f"[GRPO] Pushed to hub: {self.cfg.hub_repo}")
             except Exception as e:
-                print(f"[GRPO] Hub push failed: {e}")
+                print(f"[GRPO] hub push failed: {e}", flush=True)
 
     def evaluate(self) -> float:
-        """Run eval episodes using the Genesis env to measure current policy reward."""
         from training.self_improve import evaluate as run_eval
-
-        seeds = list(range(self.cfg.eval_seeds_start, self.cfg.eval_seeds_start + self.cfg.eval_episodes))
+        seeds  = list(range(self.cfg.eval_seeds_start, self.cfg.eval_seeds_start + self.cfg.eval_episodes))
         result = run_eval(self.cfg.eval_episodes, seeds=seeds)
-        mean_r = result["mean_reward"]
-        print(f"[GRPO] Eval mean_reward={mean_r:.4f} (n={self.cfg.eval_episodes})")
-        return mean_r
+        print(f"[GRPO] eval mean_reward={result['mean_reward']:.4f}", flush=True)
+        return result["mean_reward"]
 
 
 # ---------------------------------------------------------------------------
@@ -566,25 +544,23 @@ class GRPOTrainer:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="GRPO fine-tuning for the Genesis coding agent")
-    parser.add_argument("--model",       default="",    help="Model name/path (overrides MODEL_NAME env var)")
+    parser = argparse.ArgumentParser(description="GRPO fine-tuning — Genesis coding agent")
+    parser.add_argument("--model",       default="")
     parser.add_argument("--epochs",      type=int,   default=2)
-    parser.add_argument("--group-size",  type=int,   default=4,   dest="group_size", help="Completions per prompt (G)")
+    parser.add_argument("--group-size",  type=int,   default=4,   dest="group_size")
     parser.add_argument("--lr",          type=float, default=5e-6)
-    parser.add_argument("--batch-size",  type=int,   default=1,   dest="batch_size")
     parser.add_argument("--output-dir",  default="checkpoints/grpo", dest="output_dir")
     parser.add_argument("--no-lora",     action="store_true", dest="no_lora")
     parser.add_argument("--no-4bit",     action="store_true", dest="no_4bit")
     parser.add_argument("--kl-coef",     type=float, default=0.04, dest="kl_coef")
     parser.add_argument("--eval-only",   action="store_true", dest="eval_only")
-    parser.add_argument("--push-to-hub", default="", dest="push_to_hub", help="HF repo id to push checkpoints")
+    parser.add_argument("--push-to-hub", default="", dest="push_to_hub")
     args = parser.parse_args()
 
     cfg = GRPOConfig(
         epochs=args.epochs,
         group_size=args.group_size,
         lr=args.lr,
-        batch_size=args.batch_size,
         output_dir=args.output_dir,
         use_lora=not args.no_lora,
         load_in_4bit=not args.no_4bit,
@@ -596,11 +572,7 @@ def main():
         cfg.model_name = args.model
 
     trainer = GRPOTrainer(cfg)
-
-    if args.eval_only:
-        trainer.evaluate()
-    else:
-        trainer.train()
+    trainer.evaluate() if args.eval_only else trainer.train()
 
 
 if __name__ == "__main__":
