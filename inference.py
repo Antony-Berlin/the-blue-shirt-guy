@@ -49,21 +49,25 @@ BENCHMARK = "gen_env"
 _SYSTEM_PROMPT = textwrap.dedent("""
     You are a Python coding assistant solving programming challenges.
     You have access to these tools:
-      - search_code_examples(query)
-      - run_tests(code, test_cases)
-      - lint_code(code)
-      - fetch_docs(library, symbol="")
-      - explain_error(traceback_text, code="")
+      - web_search(query)          — search the web for real code examples and docs
+      - fetch_url(url)             — fetch and read any public URL (docs, Stack Overflow, GitHub)
+      - execute_code(code)         — run arbitrary Python to experiment and verify logic
+      - run_tests(code, test_cases) — run test assertions against your solution
+      - lint_code(code)            — static analysis for code quality issues
+      - fetch_docs(library, symbol="") — retrieve Python standard library docs
+      - explain_error(traceback_text, code="") — diagnose a Python traceback
 
     Strategy:
-    1. Search for related examples first
-    2. Write your solution
-    3. Run tests to verify
+    1. Search the web or fetch docs to understand the problem and find relevant patterns
+    2. Use execute_code to experiment with your approach before writing the full solution
+    3. Write your solution and run_tests to verify it passes
     4. Fix errors using explain_error and lint_code
     5. Submit your final code
 
     To call a tool respond ONLY with a JSON object where "action" is the tool name:
-    {"action": "search_code_examples", "query": "..."}
+    {"action": "web_search", "query": "python two sum hash map solution"}
+    {"action": "fetch_url", "url": "https://docs.python.org/3/library/collections.html"}
+    {"action": "execute_code", "code": "print([i for i in range(5)])"}
     {"action": "run_tests", "code": "...", "test_cases": "assert foo(1) == 2"}
     {"action": "lint_code", "code": "..."}
     {"action": "fetch_docs", "library": "collections", "symbol": "Counter"}
@@ -177,12 +181,13 @@ def run_tool_loop(
             print(f"[DEBUG] LLM call failed: {exc}", flush=True)
             break
 
-        messages.append({"role": "assistant", "content": response_text})
-
         action = _extract_json(response_text)
         if action is None:
-            print(f"[DEBUG] No JSON in response, retrying. text={response_text[:120]!r}", flush=True)
+            # Don't append the bad response — add a corrective user turn instead
+            messages.append({"role": "user", "content": "Respond ONLY with a single JSON object. No prose, no markdown. Example: {\"action\": \"submit\", \"code\": \"...\"}"})
             continue
+
+        messages.append({"role": "assistant", "content": response_text})
 
         action_name = action.get("action", "")
 
