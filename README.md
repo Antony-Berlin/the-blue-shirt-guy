@@ -10,7 +10,7 @@ pinned: false
 
 # The Blue Shirt Guy Project
 
-![freeGuy](imgs/glasses-virtual-reality.gif)
+![freeGuy](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjZ6MDZ0OTE5d3A4dWd1bW91bTAwOTVkdGZ5NnNkZjh5Zms0aDRqdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/uuWEJYU9OETUxCSssd/giphy.gif)
 
 You know that movie *Free Guy* — where an NPC wakes up, realises he's inside a game, and starts improving himself beyond what he was programmed to do?
 
