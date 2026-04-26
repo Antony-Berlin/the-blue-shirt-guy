@@ -42,11 +42,12 @@ MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct")
 # Episode runner (re-uses inference logic without the print scaffolding)
 # ---------------------------------------------------------------------------
 
-def _run_episode(seed: int = None) -> Dict:
+def _run_episode(seed: int = None, client=None) -> Dict:
     """Run one full episode. Returns dict with reward, tool_grades, nl_feedback, tool_log."""
     from inference import run_tool_loop
 
-    client = OpenAI(base_url=API_BASE, api_key=API_KEY)
+    if client is None:
+        client = OpenAI(base_url=API_BASE, api_key=API_KEY)
     executor = ToolExecutor()
     env = GenesisEnvironment()
 
@@ -74,8 +75,13 @@ def _run_episode(seed: int = None) -> Dict:
     }
 
 
-def evaluate(n: int, seeds: List[int] = None) -> Dict:
+def evaluate(n: int, seeds: List[int] = None, client=None) -> Dict:
     """Run n episodes and aggregate results.
+
+    Args:
+        n: number of episodes
+        seeds: list of seeds
+        client: OpenAI-compatible client (or LocalClient). If None, uses HF router.
 
     Returns:
         mean_reward, per_tool_weights (averaged), all_feedback, all_tool_logs
@@ -85,7 +91,7 @@ def evaluate(n: int, seeds: List[int] = None) -> Dict:
     print(f"[EVAL] Running {n} episodes...", flush=True)
     for i, seed in enumerate(seeds):
         try:
-            r = _run_episode(seed=seed)
+            r = _run_episode(seed=seed, client=client)
             results.append(r)
             print(f"[EVAL] episode {i+1}/{n} seed={seed} reward={r['reward']:.3f} task={r['task_id']}", flush=True)
         except Exception as exc:
@@ -136,17 +142,19 @@ def _save_state(state: Dict) -> None:
 # Main loop
 # ---------------------------------------------------------------------------
 
-def _one_cycle(cycle_num: int, n_episodes: int, dry_run: bool) -> Dict:
+def _one_cycle(cycle_num: int, n_episodes: int, dry_run: bool, client=None) -> Dict:
     """Run one self-improvement cycle and return the cycle record dict.
 
     Callable independently so the combined loop can interleave GRPO steps.
+    Args:
+        client: OpenAI-compatible client (or LocalClient). If None, uses HF router.
     """
     from training.tool_architect import apply_improvement
 
     print(f"\n--- Self-Improve Cycle {cycle_num} ---", flush=True)
 
     # 1. Baseline evaluation
-    before = evaluate(n_episodes, seeds=list(range(cycle_num * 100, cycle_num * 100 + n_episodes)))
+    before = evaluate(n_episodes, seeds=list(range(cycle_num * 100, cycle_num * 100 + n_episodes)), client=client)
     print(f"[LOOP] Before: mean_reward={before['mean_reward']:.3f}", flush=True)
 
     # 2. Build tool flags from weights
@@ -166,7 +174,7 @@ def _one_cycle(cycle_num: int, n_episodes: int, dry_run: bool) -> Dict:
     print(f"[LOOP] Architect result: {improvement}", flush=True)
 
     # 4. Post-improvement evaluation
-    after = evaluate(n_episodes, seeds=list(range(cycle_num * 100 + 50, cycle_num * 100 + 50 + n_episodes)))
+    after = evaluate(n_episodes, seeds=list(range(cycle_num * 100 + 50, cycle_num * 100 + 50 + n_episodes)), client=client)
     delta = after["mean_reward"] - before["mean_reward"]
     print(f"[LOOP] After:  mean_reward={after['mean_reward']:.3f}  delta={delta:+.3f}", flush=True)
 
@@ -194,7 +202,7 @@ def _one_cycle(cycle_num: int, n_episodes: int, dry_run: bool) -> Dict:
     return cycle_record
 
 
-def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
+def run_loop(n_episodes: int, n_cycles: int, dry_run: bool, client=None) -> None:
     state = _load_state()
     start_cycle = state["cycle"]
 
@@ -206,7 +214,7 @@ def run_loop(n_episodes: int, n_cycles: int, dry_run: bool) -> None:
 
     for cycle_idx in range(n_cycles):
         cycle_num = start_cycle + cycle_idx + 1
-        cycle_record = _one_cycle(cycle_num, n_episodes, dry_run)
+        cycle_record = _one_cycle(cycle_num, n_episodes, dry_run, client=client)
         state["cycle"] = cycle_num
         state["history"].append(cycle_record)
         _save_state(state)

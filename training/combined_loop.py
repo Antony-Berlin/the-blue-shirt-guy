@@ -112,6 +112,7 @@ def run_combined_loop(
     grpo_only: bool = False,
     improve_only: bool = False,
     grpo_cfg=None,
+    use_local_model: bool = True,
 ) -> None:
     from training.self_improve import _one_cycle
 
@@ -166,7 +167,12 @@ def run_combined_loop(
         # ── Phase 2: Self-Improvement ──────────────────────────────────────
         if not grpo_only:
             print(f"[COMBINED] Self-improve phase — cycle {cycle_num}", flush=True)
-            cycle_record = _one_cycle(cycle_num, n_episodes, dry_run)
+            # Use the local GRPO model for inference if available and requested
+            local_client = None
+            if use_local_model and trainer is not None:
+                local_client = trainer.get_local_client()
+                print("[COMBINED] Using local model for self-improve inference", flush=True)
+            cycle_record = _one_cycle(cycle_num, n_episodes, dry_run, client=local_client)
             improve_metrics = {
                 "before_reward":    cycle_record["before_reward"],
                 "after_reward":     cycle_record["after_reward"],

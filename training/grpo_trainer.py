@@ -300,6 +300,11 @@ class GRPOTrainer:
         self._save("final")
         return result
 
+    def get_local_client(self):
+        """Return an OpenAI-compatible client backed by the local model."""
+        from training.local_client import LocalClient
+        return LocalClient(self.model, self.tokenizer)
+
     def _save(self, tag: str):
         out = Path(self.cfg.output_dir) / tag
         self.model.save_pretrained(str(out))
