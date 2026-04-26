@@ -8,135 +8,108 @@ app_port: 7860
 pinned: false
 ---
 
-# Genesis — The Coding Agent That Fixes Its Own Tools
+# The Blue Shirt Guy Project
 
-> *What if the agent could look at its bad tools, fire them, and hire better ones?*
+You know that movie — *Free Guy* — where an NPC in a video game suddenly becomes aware that he's an NPC? He starts making choices. Improving himself. Breaking out of the script he was written with.
 
----
-
-## The Problem
-
-Every LLM agent ships with a fixed toolbox. A broken search tool? The agent learns to work around it. A useless error explainer? The agent ignores it and guesses anyway. The tools rot quietly — because the agent adapts to the tools instead of the other way around.
-
-This is the **static toolbox ceiling**. The agent can only ever be as good as its worst tool.
+That's the vibe here.
 
 ---
 
-## The Idea
+## We called it Genesis for a reason
 
-Genesis is a coding agent environment where the agent doesn't just solve programming tasks — it **identifies its own underperforming tools and rewrites them**.
+Genesis is a coding agent that was born with five tools and told to go solve programming problems. The tools weren't great. One of them just dumps raw pydoc at you. Another explains errors using templates from 2004. The search tool has exactly 10 examples hardcoded into it.
 
-Every single tool call is graded mid-episode. The grades are tracked over time with an EMA. When a tool consistently underperforms, a second LLM (the **Tool Architect**) reads the grades, reads the broken tool's source code, and rewrites it. We measure if the rewrite actually helped. If it didn't, we revert to the backup. If it did, we keep it — and use the improvement delta to train the Tool Architect to write better rewrites next time.
+A normal agent would just work around them. Ignore the bad ones. Develop habits. Get stuck at a ceiling.
 
-It's turtles all the way down. Except the turtles keep getting smarter.
+Genesis doesn't do that.
+
+Genesis looks at its own tools, figures out which ones are failing it, and **rewrites them**. Then it checks if the rewrite actually helped. If it didn't, it rolls back. If it did, it keeps the improvement — and learns to write better rewrites next time.
+
+It gains consciousness the hard way. One tool at a time.
 
 ---
 
-## How It Works
+## The loop that makes it real
 
-The agent gets a programming task, calls tools to research and test a solution, then submits code. The environment grades everything:
+Every tool call gets graded. Not just "did the agent succeed" — each individual tool call, mid-episode, gets a score based on what it returned. Bad search results score low. Useful error explanations score high. The grades accumulate into a running average per tool.
+
+When a tool keeps scoring badly, a second LLM — the **Tool Architect** — gets called in. It reads the grades. It reads the NL feedback from the judge. It reads the actual source code of the bad tool. Then it rewrites it.
+
+```
+run episodes → grade every tool call → worst tool flagged
+→ Tool Architect rewrites it → run episodes again → better? keep it : revert
+→ train Tool Architect on that delta → repeat
+```
+
+The Tool Architect gets trained with GRPO where the reward is literally "did the agent do better after your rewrite." It learns to be a good programmer by watching what it breaks and what it fixes.
+
+Meanwhile the agent's own LLM gets fine-tuned on the benchmark tasks in parallel. Model weights improving. Tool files improving. Both at once, every cycle.
+
+---
+
+## What the tools start as
+
+Five plain Python files. Rewritable. Evolvable.
+
+| Tool | The honest description |
+|------|----------------------|
+| `search_code_examples` | BM25 over 10 hardcoded examples. Yes, 10. |
+| `run_tests` | Runs assert statements in a subprocess. Actually fine. |
+| `lint_code` | Calls pyflakes, re-ranks by frequency. Verbose. |
+| `fetch_docs` | Raw pydoc dump, cuts off at 2000 chars. |
+| `explain_error` | Pattern-matches the error type and returns a template. Rough. |
+
+The bad ones are bad on purpose. The interesting question is whether the system finds them, understands why, and makes them better — without being told which ones to fix.
+
+---
+
+## The reward
 
 ```
 reward = tests_passed × 0.6 + tool_quality × 0.2 + reasoning_quality × 0.2
 ```
 
-Tool calls are graded *mid-episode* by routing each result to a content-type-specific grader — code syntax checker, test result parser, error explanation rater, search relevance scorer, and so on. New tools added during evolution get graded automatically, no code changes needed.
+Tool quality comes from a multi-grader system that routes each tool result to the right grader based on what it returned — code gets syntax-checked, test output gets parsed, error explanations get rated for usefulness. No manual labelling. The environment figures out what kind of result it's looking at.
 
-After enough episodes, the tool EMA weights tell the story:
-
-| EMA Weight | Verdict | What happens |
-|---|---|---|
-| > 0.7 | `KEEP` | Nothing, it's working |
-| 0.4–0.7 | `REVIEW` | Candidate for improvement |
-| < 0.4 | `REPLACE` | Tool Architect gets called |
+Reasoning gets scored by an LLM judge. If that fails it falls back to Anthropic. If that fails it uses a heuristic. Robust by default.
 
 ---
 
-## What Actually Evolves
+## Why it matters
 
-Five tools live as plain Python files on the agent side. The Tool Architect rewrites them locally — just a file write, no server restart:
+The standard approach to agents is: pick better tools, write better prompts, hope for the best.
 
-| Tool | What it does | Starts as |
-|------|-------------|-----------|
-| `search_code_examples` | BM25 search over a code corpus | 10 static examples, purely lexical |
-| `run_tests` | Runs assert statements in a subprocess | Already decent, actually |
-| `lint_code` | Static analysis via pyflakes | Too verbose, re-ranked by frequency |
-| `fetch_docs` | pydoc for libraries/symbols | Raw unfiltered dump, truncated at 2000 chars |
-| `explain_error` | Diagnoses Python tracebacks | Generic templates, no line-specific analysis |
+This project asks a different question. What if the agent could be the one to improve its tools? What if the ceiling wasn't fixed?
 
-The weak ones get noticed. The Tool Architect reads the tool source + grades + NL feedback and decides whether to rewrite an existing tool or create an entirely new one. If the delta is negative — revert. Simple.
+It's a small step toward the Free Guy problem — an agent that doesn't just operate within its constraints but actively works to dissolve them.
 
 ---
 
-## The Training Loop
-
-Two things improve in parallel each cycle:
-
-**1. GRPO fine-tunes the agent LLM** on a batch of benchmark tasks. Each task generates G completions, each gets scored by the environment, and the model is updated using group-normalized advantages. No separate critic.
-
-**2. Self-improvement evolves the tools** — evaluate N episodes → Tool Architect rewrites worst tool → evaluate N more episodes → keep or revert based on delta.
-
-```
-for each cycle:
-  ① GRPO: sample G completions per task → score → update model weights
-  ② Eval N episodes → pick worst tool → rewrite → eval N more → Δ > 0? keep : revert
-```
-
-The Tool Architect itself is an LLM fine-tuned with GRPO where the reward *is* the improvement delta. It learns not just to generate code, but to generate code that makes the downstream agent measurably better.
-
----
-
-## Architecture
-
-```
-[Colab / Local]                         [HuggingFace Space]
-  Agent + 5 tool files    ──POST──▶     Genesis Env Server
-  Tool Architect                         • runs hidden tests
-  GRPO trainer                           • grades every tool call
-                                         • returns reward + per-tool grades + NL feedback
-```
-
-The server is a stateless evaluator. It holds the benchmark tasks and hidden test suites. The agent, tools, and training all run on your machine (or Colab).
-
----
-
-## Dive Deeper
-
-| What | Where |
-|------|-------|
-| Full environment design — reward formula, grader system, tool weight tracking | [PROJECT.md](PROJECT.md) |
-| Reward mechanism detail | [reward_mechanism.md](reward_mechanism.md) |
-| Interactive notebook — run everything in Colab | [training/self_improve.ipynb](training/self_improve.ipynb) |
-
----
-
-## Run It
+## Try it
 
 ```bash
 git clone https://huggingface.co/spaces/berlin1906/genesis_env
 cd genesis_env
 pip install -r requirements.txt
-cp .env.example .env   # set HF_TOKEN + MODEL_NAME
+cp .env.example .env  # add HF_TOKEN and MODEL_NAME
 
-# Watch one episode
-python inference.py
-
-# Run the self-improvement loop (3 cycles, 3 eval episodes each)
-python training/self_improve.py --cycles 3 --n 3
-
-# Run GRPO fine-tuning + self-improvement together
-python training/combined_loop.py --cycles 3 --n 3 --batch-size 4
-
-# Or just open the notebook
-jupyter notebook training/self_improve.ipynb
+python inference.py                                         # one episode
+python training/self_improve.py --cycles 3 --n 3           # self-improvement loop
+python training/combined_loop.py --cycles 3 --batch-size 4 # GRPO + self-improvement
 ```
+
+Or open [`training/self_improve.ipynb`](training/self_improve.ipynb) in Colab and run it cell by cell.
 
 ---
 
-## The Punchline
+## Go deeper
 
-Most agents are handed a toolbox and told to get on with it.
+- **[PROJECT.md](PROJECT.md)** — full design: reward formula, grader architecture, tool weight tracking, EMA thresholds, the whole thing
+- **[reward_mechanism.md](reward_mechanism.md)** — how each tool call gets its grade
+- **[training/self_improve.ipynb](training/self_improve.ipynb)** — the full training notebook, works on a T4
 
-Genesis asks: *what if the agent could look at its tools, decide they're bad, and build better ones?*
+---
 
-The loop that makes it work is surprisingly simple — grade every call, track what's weak, rewrite it, measure the delta, train on the delta. No magical self-awareness required. Just relentless self-criticism, backed by a revert button.
+*Built for the OpenEnv hackathon, Theme 4 — Self-Improvement.*
+*The NPC learned to code. Then it learned to improve its own tools. We're watching to see what happens next.*
