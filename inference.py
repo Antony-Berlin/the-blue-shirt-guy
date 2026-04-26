@@ -43,47 +43,100 @@ SUCCESS_THRESHOLD = float(os.getenv("SUCCESS_THRESHOLD", "0.5"))
 BENCHMARK = "gen_env"
 
 # ---------------------------------------------------------------------------
-# Prompts
+# Prompts — built dynamically from the tool files, no manual updates needed
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = textwrap.dedent("""
-    You are a Python coding assistant solving programming challenges.
-    You have access to these tools:
-      - web_search(query)          — search the web for real code examples and docs
-      - fetch_url(url)             — fetch and read any public URL (docs, Stack Overflow, GitHub)
-      - execute_code(code)         — run arbitrary Python to experiment and verify logic
-      - run_tests(code, test_cases) — run test assertions against your solution
-      - lint_code(code)            — static analysis for code quality issues
-      - fetch_docs(library, symbol="") — retrieve Python standard library docs
-      - explain_error(traceback_text, code="") — diagnose a Python traceback
-
-    Strategy:
-    1. Search the web or fetch docs to understand the problem and find relevant patterns
-    2. Use execute_code to experiment with your approach before writing the full solution
-    3. Write your solution and run_tests to verify it passes
-    4. Fix errors using explain_error and lint_code
-    5. Submit your final code
-
-    To call a tool respond ONLY with a JSON object where "action" is the tool name:
-    {"action": "web_search", "query": "python two sum hash map solution"}
-    {"action": "fetch_url", "url": "https://docs.python.org/3/library/collections.html"}
-    {"action": "execute_code", "code": "print([i for i in range(5)])"}
-    {"action": "run_tests", "code": "...", "test_cases": "assert foo(1) == 2"}
-    {"action": "lint_code", "code": "..."}
-    {"action": "fetch_docs", "library": "collections", "symbol": "Counter"}
-    {"action": "explain_error", "traceback_text": "...", "code": "..."}
-
-    To submit your final answer:
-    {"action": "submit", "code": "...your complete Python solution..."}
-
-    Respond ONLY with a single JSON object. No prose, no markdown fences.
-""").strip()
-
-# Built dynamically so new tools created by the Tool Architect are immediately
-# available to the agent without restarting or editing this file.
 def _get_tool_actions() -> set:
     from agent.tool_executor import _discover_tools
     return set(_discover_tools())
+
+
+def _build_system_prompt() -> str:
+    """Introspect every tool file to build the system prompt dynamically.
+
+    Pulls the one-line description from the module docstring and generates
+    an example JSON call from the function signature. Adding or removing a
+    tool file is all that's needed — no edits here required.
+    """
+    import importlib.util
+    import inspect
+    from pathlib import Path
+
+    tools_dir = Path(__file__).parent / "agent" / "tools"
+    tool_files = sorted(p for p in tools_dir.glob("*.py") if p.stem != "__init__")
+
+    tool_lines = []    # "  - tool_name(sig) — description"
+    example_lines = [] # {"action": "tool_name", "param": "..."}
+
+    # Example values for common parameter names
+    _example_vals = {
+        "query": "python Counter most frequent element",
+        "url": "https://docs.python.org/3/library/collections.html",
+        "code": "def foo(x): return x * 2",
+        "test_cases": "assert foo(2) == 4",
+        "traceback_text": "TypeError: unsupported operand...",
+        "library": "collections",
+        "symbol": "Counter",
+        "max_results": 5,
+        "max_chars": 3000,
+    }
+
+    for tool_path in tool_files:
+        spec = importlib.util.spec_from_file_location(tool_path.stem, tool_path)
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            continue
+
+        fn = getattr(mod, tool_path.stem, None)
+        if fn is None or not callable(fn):
+            continue
+
+        # Description from module docstring first line after the dash
+        mod_doc = (mod.__doc__ or "").strip().splitlines()[0]
+        description = mod_doc.split("—", 1)[-1].strip() if "—" in mod_doc else mod_doc
+
+        # Signature for the tool line
+        sig = inspect.signature(fn)
+        sig_str = ", ".join(
+            f"{p.name}={p.default!r}" if p.default is not inspect.Parameter.empty else p.name
+            for p in sig.parameters.values()
+        )
+        tool_lines.append(f"  - {tool_path.stem}({sig_str}) — {description}")
+
+        # Example JSON call using known example values, skip defaults
+        example = {"action": tool_path.stem}
+        for name, param in sig.parameters.items():
+            if param.default is inspect.Parameter.empty:
+                example[name] = _example_vals.get(name, f'"<{name}>"')
+            # skip optional params with defaults to keep example short
+        example_lines.append(json.dumps(example))
+
+    tool_block = "\n".join(tool_lines)
+    example_block = "\n    ".join(example_lines)
+    submit_example = json.dumps({"action": "submit", "code": "def foo(x): return x"})
+
+    return textwrap.dedent(f"""
+        You are a Python coding assistant solving programming challenges.
+        You have access to these tools:
+        {tool_block}
+
+        Strategy:
+        1. Use web_search or fetch_url to find real examples and documentation
+        2. Use execute_code to experiment before writing the full solution
+        3. Write your solution and run_tests to verify it passes
+        4. Fix errors with explain_error and lint_code
+        5. Submit your final code
+
+        To call a tool respond ONLY with a JSON object where "action" is the tool name:
+        {example_block}
+
+        To submit your final answer:
+        {submit_example}
+
+        Respond ONLY with a single JSON object. No prose, no markdown fences.
+    """).strip()
 
 
 def _make_user_prompt(description: str, starter_code: str, tool_actions: set) -> str:
@@ -159,7 +212,7 @@ def run_tool_loop(
     """
     tool_actions = _get_tool_actions()
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": _build_system_prompt()},
         {"role": "user", "content": _make_user_prompt(description, starter_code, tool_actions)},
     ]
 
