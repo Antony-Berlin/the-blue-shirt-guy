@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir \
     "openai>=1.0.0" \
     "python-dotenv>=1.0.0" \
     "anthropic>=0.25.0" \
-    "rank-bm25>=0.2.2" \
     "pyflakes>=3.0.0"
 
 ENV PYTHONPATH=/app

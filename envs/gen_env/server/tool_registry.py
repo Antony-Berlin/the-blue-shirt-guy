@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Dict, List, Optional
 
 
@@ -15,31 +14,12 @@ class ToolFlag(str, Enum):
 _EMA_ALPHA = 0.3  # smoothing factor; higher = more reactive to recent episodes
 
 
-def _discover_tool_names() -> List[str]:
-    """Dynamically discover tool names from agent/tools/*.py files."""
-    tools_dir = Path(__file__).resolve().parents[3] / "agent" / "tools"
-    if not tools_dir.is_dir():
-        return []
-    return sorted(
-        p.stem
-        for p in tools_dir.glob("*.py")
-        if p.stem != "__init__"
-    )
-
-
-TOOL_NAMES = _discover_tool_names()
-
-
 @dataclass
 class ToolRegistry:
     """Maintains an Exponential Moving Average of rewards attributed to each tool."""
 
-    ema_weights: Dict[str, float] = field(
-        default_factory=lambda: {name: 0.5 for name in TOOL_NAMES}
-    )
-    usage_counts: Dict[str, int] = field(
-        default_factory=lambda: {name: 0 for name in TOOL_NAMES}
-    )
+    ema_weights: Dict[str, float] = field(default_factory=dict)
+    usage_counts: Dict[str, int] = field(default_factory=dict)
 
     def update(
         self,

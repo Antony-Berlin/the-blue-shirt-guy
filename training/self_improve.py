@@ -27,8 +27,8 @@ load_dotenv()
 
 from agent.tool_executor import ToolExecutor
 from envs.gen_env.models import GenEnvAction
-from envs.gen_env.server.gen_env_environment import GenesisEnvironment
-from envs.gen_env.server.tool_registry import ToolRegistry, ToolFlag
+from envs.gen_env.client import GenesisEnvClient as GenesisEnvironment
+from envs.gen_env.tool_registry import ToolRegistry, ToolFlag
 from openai import OpenAI
 
 _STATE_FILE = Path(__file__).parent / "loop_state.json"

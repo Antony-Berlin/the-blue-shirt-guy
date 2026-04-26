@@ -1,15 +1,25 @@
-"""Genesis environment client — connects to the running server via WebSocket."""
+"""Genesis environment client — connects to the running server via WebSocket.
 
-from typing import Dict, List, Any
+Use GenesisEnvClient (the sync wrapper at the bottom) in all client-side code.
+It mirrors the GenesisEnvironment interface exactly so no call-site changes are needed.
 
-from openenv.core import EnvClient
+Server URL is read from ENV_SERVER_URL (default http://localhost:7860).
+For the deployed HuggingFace Space set:
+    ENV_SERVER_URL=https://berlin1906-genesis-env.hf.space
+"""
+
+import os
+from typing import Any, Dict, Optional
+
+from openenv.core import EnvClient, SyncEnvClient
 from openenv.core.client_types import StepResult
-from openenv.core.env_server.types import State
 
 try:
-    from .models import GenEnvObservation, GenEnvAction, GenEnvState
+    from .models import GenEnvObservation, GenEnvAction, GenEnvState, GenEnvToolAction
 except ImportError:
-    from models import GenEnvObservation, GenEnvAction, GenEnvState
+    from models import GenEnvObservation, GenEnvAction, GenEnvState, GenEnvToolAction
+
+_DEFAULT_URL = "https://berlin1906-genesis-env.hf.space"
 
 
 class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
@@ -27,7 +37,7 @@ class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
                 tool_usage_log=[],
             )
             result = await env.step(action)
-            print(result.reward)  # composite float 0-1
+            print(result.reward)
     """
 
     def _step_payload(self, action: GenEnvAction) -> Dict[str, Any]:
@@ -48,6 +58,7 @@ class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
             tests_total=obs_data.get("tests_total", 0),
             nl_feedback=obs_data.get("nl_feedback", ""),
             tool_weights=obs_data.get("tool_weights", {}),
+            tool_grades=obs_data.get("tool_grades", []),
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),
@@ -68,3 +79,59 @@ class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
             tool_weights=payload.get("tool_weights", {}),
             last_reward=payload.get("last_reward"),
         )
+
+
+class GenesisEnvClient:
+    """Synchronous drop-in replacement for GenesisEnvironment.
+
+    Wraps GenEnvClient (async) via SyncEnvClient so all existing call sites
+    work unchanged — no async/await needed.
+
+    Usage::
+
+        env = GenesisEnvClient()          # reads ENV_SERVER_URL
+        obs = env.reset(seed=42)          # returns GenEnvObservation
+        step_obs = env.step(action)       # returns GenEnvObservation
+        tool_obs = env.step_tool(ta)      # returns GenEnvObservation
+    """
+
+    def __init__(self, base_url: Optional[str] = None) -> None:
+        url = base_url or os.getenv("ENV_SERVER_URL", _DEFAULT_URL)
+        self._sync: SyncEnvClient = GenEnvClient(base_url=url).sync()
+        self._sync.connect()
+
+    def reset(self, seed: Optional[int] = None, **kwargs: Any) -> GenEnvObservation:
+        result = self._sync.reset(seed=seed, **kwargs)
+        return result.observation
+
+    def step(self, action: GenEnvAction, **kwargs: Any) -> GenEnvObservation:
+        result = self._sync.step(action, **kwargs)
+        obs = result.observation
+        # surface reward and done onto the observation so call sites work unchanged
+        if result.reward is not None:
+            obs.reward = result.reward
+        obs.done = result.done
+        return obs
+
+    def step_tool(self, action: GenEnvToolAction) -> GenEnvObservation:
+        # step_tool is a custom mid-episode endpoint — sent as a regular step
+        # with the tool action serialised; the server distinguishes by action type
+        result = self._sync.step(action)  # type: ignore[arg-type]
+        obs = result.observation
+        if result.reward is not None:
+            obs.reward = result.reward
+        obs.done = result.done
+        return obs
+
+    @property
+    def state(self) -> GenEnvState:
+        return self._sync.state()
+
+    def close(self) -> None:
+        self._sync.close()
+
+    def __enter__(self) -> "GenesisEnvClient":
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.close()

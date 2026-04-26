@@ -116,6 +116,9 @@ def _extract_code(text: str, starter: str) -> str:
 # ---------------------------------------------------------------------------
 
 def make_reward_fn(tasks_by_id: dict):
+    # GRPO reward scoring runs locally during training — the env server is not
+    # running at this point, so we instantiate GenesisEnvironment directly to
+    # evaluate specific tasks by injecting them before calling step().
     from envs.gen_env.server.gen_env_environment import GenesisEnvironment
     from envs.gen_env.models import GenEnvAction
 

@@ -24,7 +24,7 @@ from openai import OpenAI
 load_dotenv()
 
 from envs.gen_env.models import GenEnvAction, GenEnvToolAction
-from envs.gen_env.server.gen_env_environment import GenesisEnvironment
+from envs.gen_env.client import GenesisEnvClient as GenesisEnvironment
 from agent.tool_executor import ToolExecutor
 
 # ---------------------------------------------------------------------------
