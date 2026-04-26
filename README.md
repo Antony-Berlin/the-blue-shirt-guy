@@ -24,7 +24,7 @@ The ceiling is fixed. We wanted to break it.
 
 ---
 
-## What We Built
+## There's a reason we called it Genesis
 
 An environment called **Genesis** where a coding agent solves programming tasks using five tools. Each tool call gets graded in real time. The grades build up into a performance score per tool. When a tool consistently scores badly, a second LLM — the **Tool Architect** — steps in, reads the source code of the bad tool, reads the grades and feedback, and rewrites it.
 
@@ -50,17 +50,9 @@ On top of that, the agent's own LLM gets fine-tuned on benchmark tasks in parall
 
 ---
 
-## The Tools (what they start as)
+## The Tools
 
-Five plain Python files. Intentionally imperfect. The point is for the system to find the weak ones on its own.
-
-| Tool | What it does | Starting quality |
-|------|-------------|-----------------|
-| `search_code_examples` | BM25 search over a code corpus | 10 hardcoded examples, purely lexical |
-| `run_tests` | Runs assert statements in a subprocess | Actually solid |
-| `lint_code` | Calls pyflakes, re-ranks by frequency | Verbose, noisy |
-| `fetch_docs` | pydoc for libraries/symbols | Raw unfiltered dump, 2000 char cutoff |
-| `explain_error` | Diagnoses Python tracebacks | Template-based, no line-specific analysis |
+Five plain Python files. Intentionally imperfect. The point is for the system to find the weak ones on its own — without being told which ones to fix.
 
 ---
 
