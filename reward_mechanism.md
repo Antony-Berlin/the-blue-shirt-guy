@@ -1,88 +1,78 @@
-  ---
-    The Core Idea
+# Reward Mechanism — Future Improvement
 
-    Instead of splitting the final reward by usage count (what the current EMA does), you want to attribute the final reward backwards through the tool call sequence based on each tool's actual contribution.
+## The Problem with the Current Design
 
-    This is called Return Decomposition or Reward Redistribution.
+Right now the EMA tracker attributes reward to tools based on **usage count**.
 
-    ---
-    How It Would Work Here
+If `run_tests` was called 3 times and `web_search` once, `run_tests` gets 75% of the episode reward — regardless of whether those calls were actually good.
 
-    Tool calls:  [search] → [run_tests] → [explain_error] → [run_tests]
-    Grades:      [0.6]       [0.4]          [0.9]             [1.0]
-    Final reward: 0.85
+That's wrong. A single brilliant `web_search` that unlocked the entire solution deserves more credit than three mediocre `run_tests` calls.
 
-    Question: how much did each tool *cause* the final reward?
+---
 
-    Step 1 — Compute a "causal contribution" score
+## The Better Idea: Return Decomposition
 
-    For each tool call at position i, ask: "How much did the trajectory improve after this call?"
+Instead of splitting reward by count, attribute it **backwards through the call sequence** based on each tool's actual contribution. This is the credit assignment problem — the same thing backpropagation solves in neural networks.
 
-    contribution_i = grade_i × (final_reward - baseline_reward_without_this_call)
+**Example:**
 
-    You can approximate baseline_reward_without_this_call using the running average reward before step i — the counterfactual "what would the reward have been if the agent stopped here."
+```
+Tool calls:   web_search → run_tests → explain_error → run_tests
+Grades:          0.6          0.4           0.9            1.0
+Final reward: 0.85
+```
 
-    Step 2 — Use cumulative discounted grades as the attribution
+The question becomes: *how much did each tool call cause the final reward?*
 
-    Similar to how Q-values work in RL:
+---
 
-    G_i = grade_i + γ × grade_{i+1} + γ² × grade_{i+2} + ...
+## How It Works: Discounted Return Attribution
 
-    With discount factor γ = 0.9. This makes early tool calls that set up later success get credit, not just the last call before submit.
+**Step 1 — Compute a discounted return for each step** (like Q-values in RL):
 
-    Step 3 — Rescale by final reward
+```
+G_i = grade_i + γ × grade_{i+1} + γ² × grade_{i+2} + ...
+```
 
-    attributed_reward_i = (G_i / sum(G)) × final_reward
+With discount factor `γ = 0.9`. This gives early tool calls that *set up* later success proportional credit — not just the last call before submit.
 
-    Now each tool gets a share of the final reward proportional to its discounted contribution through the sequence.
+**Step 2 — Normalize and scale by final reward:**
 
-    ---
-    The Backpropagation Analogy
+```
+attributed_reward_i = (G_i / sum(G)) × final_reward
+```
 
-    What you're describing is essentially the credit assignment problem — the same thing backprop solves in neural networks. The difference:
+Each tool gets a share of the final reward proportional to its discounted contribution through the sequence.
 
-    - Backprop has a differentiable computation graph → exact gradients
-    - Tool call sequences are discrete and non-differentiable → must approximate
+**Step 3 — Update EMA with attributed reward instead of raw grade.**
 
-    The approximations used in practice:
+---
 
-    ┌─────────────────────────────┬─────────────────────────────────────────────────────────────┬───────────────────────────┐
-    │           Method            │                             How                             │            Fit            │
-    ├─────────────────────────────┼─────────────────────────────────────────────────────────────┼───────────────────────────┤
-    │ REINFORCE with baseline     │ (G_i - mean(G)) × log_prob(action_i)                        │ Good for GRPO             │
-    ├─────────────────────────────┼─────────────────────────────────────────────────────────────┼───────────────────────────┤
-    │ Advantage estimation (GAE)  │ Weighted blend of n-step returns                            │ Best credit assignment    │
-    ├─────────────────────────────┼─────────────────────────────────────────────────────────────┼───────────────────────────┤
-    │ Attention-based attribution │ Train a small model to predict which step caused the reward │ Complex but most accurate │
-    └─────────────────────────────┴─────────────────────────────────────────────────────────────┴───────────────────────────┘
+## The Code Change (3 lines in `tool_registry.update()`)
 
-    ---
-    What This Gives You Over Current Design
+```python
+γ = 0.9
+G = 0.0
+returns = []
+for grade in reversed(tool_grades):
+    G = grade + γ * G
+    returns.insert(0, G)
 
-    Current EMA: run_tests called 3×, search called 1× → run_tests gets 75% of reward regardless of quality.
+total = sum(returns) or 1.0
+attributed = [(r / total) * final_reward for r in returns]
+# then: update each tool's EMA with attributed[i] instead of grade[i]
+```
 
-    With return decomposition: if search at step 1 had grade 0.9 and directly enabled the agent to write correct code, it gets higher attribution even though it was only called once.
-  ---
-    Practical Recommendation
+Everything needed is already in the system — `tool_grades`, `final_reward`, and the sequence order in `tool_usage_log`. This is a drop-in improvement to `tool_registry.update()`.
 
-    The current architecture already has everything needed to implement GAE-style attribution:
+---
 
-    1. tool_grades[i] — per-step quality signal (already computed)
-    2. final_reward — outcome signal (already returned)
-    3. Tool sequence order — preserved in tool_usage_log
+## Why This Matters
 
-    The formula to add to tool_registry.update():
+| | Current (count-based) | Improved (return decomposition) |
+|---|---|---|
+| `run_tests` called 3×, mediocre | gets 75% of reward | gets proportional to actual grades |
+| `web_search` called once, brilliant | gets 25% of reward | gets higher share if it enabled success |
+| Early calls that set up later wins | undervalued | credited via discount factor |
 
-    γ = 0.9
-    G = 0.0
-    returns = []
-    for grade in reversed(tool_grades):
-        G = grade + γ * G
-        returns.insert(0, G)
-
-    # Normalize by sum so attribution sums to final_reward
-    total = sum(returns) or 1.0
-    attributed = [(r / total) * final_reward for r in returns]
-
-    Then update each tool's EMA with attributed[i] instead of grade[i]. This is the closest practical approximation to "backpropagating through the tool sequence" without needing a differentiable model over the
-    tool calls.
+The Tool Architect makes better rewrite decisions when the signal it receives actually reflects which tool was responsible for the outcome — not just which tool was called the most.
