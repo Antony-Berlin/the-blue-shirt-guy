@@ -84,38 +84,48 @@ class GenEnvClient(EnvClient[GenEnvAction, GenEnvObservation, GenEnvState]):
 class GenesisEnvClient:
     """Synchronous drop-in replacement for GenesisEnvironment.
 
-    Wraps GenEnvClient (async) via SyncEnvClient so all existing call sites
-    work unchanged — no async/await needed.
+    When LOCAL=true is set (or ENV_SERVER_URL is unset), instantiates
+    GenesisEnvironment directly — no server needed. Otherwise connects
+    to the deployed HF Space via WebSocket.
 
     Usage::
 
-        env = GenesisEnvClient()          # reads ENV_SERVER_URL
+        env = GenesisEnvClient()          # reads LOCAL / ENV_SERVER_URL
         obs = env.reset(seed=42)          # returns GenEnvObservation
         step_obs = env.step(action)       # returns GenEnvObservation
         tool_obs = env.step_tool(ta)      # returns GenEnvObservation
     """
 
     def __init__(self, base_url: Optional[str] = None) -> None:
-        url = base_url or os.getenv("ENV_SERVER_URL", _DEFAULT_URL)
-        self._sync: SyncEnvClient = GenEnvClient(base_url=url).sync()
-        self._sync.connect()
+        if os.getenv("LOCAL", "").lower() in ("1", "true") or not os.getenv("ENV_SERVER_URL"):
+            from envs.gen_env.server.gen_env_environment import GenesisEnvironment
+            self._local = GenesisEnvironment()
+            self._sync = None
+        else:
+            url = base_url or os.getenv("ENV_SERVER_URL", _DEFAULT_URL)
+            self._sync: SyncEnvClient = GenEnvClient(base_url=url).sync()
+            self._sync.connect()
+            self._local = None
 
     def reset(self, seed: Optional[int] = None, **kwargs: Any) -> GenEnvObservation:
+        if self._local:
+            return self._local.reset(seed=seed, **kwargs)
         result = self._sync.reset(seed=seed, **kwargs)
         return result.observation
 
     def step(self, action: GenEnvAction, **kwargs: Any) -> GenEnvObservation:
+        if self._local:
+            return self._local.step(action, **kwargs)
         result = self._sync.step(action, **kwargs)
         obs = result.observation
-        # surface reward and done onto the observation so call sites work unchanged
         if result.reward is not None:
             obs.reward = result.reward
         obs.done = result.done
         return obs
 
     def step_tool(self, action: GenEnvToolAction) -> GenEnvObservation:
-        # step_tool is a custom mid-episode endpoint — sent as a regular step
-        # with the tool action serialised; the server distinguishes by action type
+        if self._local:
+            return self._local.step_tool(action)
         result = self._sync.step(action)  # type: ignore[arg-type]
         obs = result.observation
         if result.reward is not None:
@@ -125,10 +135,13 @@ class GenesisEnvClient:
 
     @property
     def state(self) -> GenEnvState:
+        if self._local:
+            return self._local.state
         return self._sync.state()
 
     def close(self) -> None:
-        self._sync.close()
+        if self._sync:
+            self._sync.close()
 
     def __enter__(self) -> "GenesisEnvClient":
         return self
