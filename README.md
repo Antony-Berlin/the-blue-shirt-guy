@@ -10,7 +10,7 @@ pinned: false
 
 # The Blue Shirt Guy Project
 
-<div class="tenor-gif-embed" data-postid="15820930" data-share-method="host" data-aspect-ratio="2.40601" data-width="100%"><a href="https://tenor.com/view/glasses-virtual-reality-cant-believe-confused-what-gif-15820930">Glasses Virtual Reality GIF</a>from <a href="https://tenor.com/search/glasses-gifs">Glasses GIFs</a></div> <script type="text/javascript" async src="https://tenor.com/embed.js"></script>
+![freeGuy](imgs/glasses-virtual-reality.gif)
 
 You know that movie *Free Guy* — where an NPC wakes up, realises he's inside a game, and starts improving himself beyond what he was programmed to do?
 
@@ -32,23 +32,18 @@ That felt wrong to me. The ceiling is fixed not because the model is incapable �
 
 ## There's a reason we called it Genesis
 
-I wanted a name that meant *this is where something new begins*. Not just a model improving — a whole environment evolving.
+Genesis is the environment. Not what improves — what makes improvement possible.
 
-So here's what Genesis is: an environment where a coding agent solves programming tasks using five tools. Every time the agent uses a tool, that call gets graded in real time. The grades accumulate into a performance score per tool, tracked with an exponential moving average so we're always watching the trend, not just the last result.
+Every tool call is graded in real time. Genesis doesn't just return a score — it returns **natural language feedback** alongside it. The score tells the Tool Architect *that* a tool is broken. The feedback tells it *why*. That's what makes automated rewriting possible. Scores accumulate per tool via an EMA tracker, and when one starts sliding consistently, the **Tool Architect** steps in — reads the source, reads the feedback, and rewrites it. We measure the delta. Better? Keep it. Worse? Revert.
 
-When a tool's score starts sliding — consistently, not just once — a second LLM called the **Tool Architect** gets called in. It reads the source code of the failing tool, reads the grades, reads the feedback, and rewrites the tool from scratch.
+- 🤖 The agent LLM is trained with **GRPO** on task performance — every cycle, it gets sharper!
+- 🏗️ Every rewrite naturally produces a training dataset. The Tool Architect LLM can be trained on it too — the data is already there!
 
-Then we measure whether things actually got better. If the agent scores higher with the new tool, we keep it. If not, we revert to the backup and wait for the next cycle to try again.
-
-What makes this more than a simple rewrite loop is what happens next. The Tool Architect itself is trained with GRPO — and its reward isn't a human label or a vibe check. Its reward is the actual improvement delta its rewrite produced. It gets smarter at rewriting tools by watching what worked and what didn't, cycle after cycle.
-
-And in parallel, the agent's own LLM is fine-tuned on benchmark tasks using GRPO too. So every cycle, two things are improving at once: the model weights and the tool files.
-
-That's why it's called Genesis. It's not one thing getting better. It's everything getting better together.
+That's why it's called Genesis. It's the ground. The agent grows from it.
 
 ---
 
-## The Loop
+## The Loop 🔁
 
 ```
 ① Agent solves tasks → every tool call graded live
@@ -60,33 +55,51 @@ That's why it's called Genesis. It's not one thing getting better. It's everythi
 ⑦ Repeat
 ```
 
----
-
-## The Tools
-
-Five plain Python files. Intentionally imperfect. The whole point is that the system has to find the weak ones on its own — nobody tells it which tool is broken or what to fix. It has to figure that out from the grades.
 
 ---
 
 ## The Reward
 
 ```
-reward = tests_passed × 0.6 + tool_quality × 0.2 + reasoning_quality × 0.2
+reward = (tests_passed / tests_total) × 0.6
+       + mean(tool_call_grades)        × 0.2
+       + reasoning_score               × 0.2
 ```
 
-Tool quality isn't a single fixed score — it's dynamic. The system first detects what kind of result a tool returned: code, test output, error explanation, search results, documentation. Then it picks the graders that are actually relevant to that output type, and the final tool score is a weighted average of those graders. A search tool gets judged on relevance and coverage. A code tool gets judged on correctness and structure. The grading adapts to the tool, not the other way around. New tools added during evolution get graded automatically, no code changes required.
+Test pass rate dominates at 60% — did the code actually work? The remaining 40% is split between how well the agent used its tools and how well it reasoned through the problem.
 
-Reasoning is scored by an LLM judge, with Anthropic as fallback, then a heuristic if both fail.
+**Tool call grading is dynamic** — each call is graded based on what it returned:
+
+- 🔍 **Search results** → judged on result count and query relevance
+- 💻 **Code** → judged on syntax correctness and style
+- ❌ **Error tracebacks** → judged on whether they identify the cause and suggest a fix
+- 🧪 **Test results** → judged on pass/fail ratio and informativeness
+- 📄 **Documentation** → judged on completeness and examples
+
+The grade for each call is a weighted average of the relevant graders. The final tool score is the mean across all calls in the episode.
+
+Two sequence-level adjustments also apply:
+
+- **−0.3** penalty for redundant tool calls within a 3-call window
+- **+0.2** bonus for calling `explain_error` after a failure — or **−0.4** for ignoring the error and retrying the same thing
+
+**Reasoning** is scored by an LLM judge — HuggingFace router first, Anthropic as fallback, heuristic if both are unavailable.
 
 ---
 
-## Why This Matters
+## Why This Matters 🔬
 
-Most self-improvement research focuses on the model. Better weights. Better prompts. Better fine-tuning recipes.
+There are really only three levers for improving an agent:
 
-This project focuses on something different: the environment the model operates in. The tools are part of the agent's capability. They're not sacred. They're just files. And if they're files, they can be rewritten.
+- **Adjust the prompt** — better instructions, better context, better examples
+- **Adjust the weights** — fine-tune the model on better data
+- **Adjust the system** — the architecture, the tools, the environment the agent operates in
 
-The result is a system where the model and its runtime environment improve together — each cycle grounded in actual task performance, not assumptions about what should work.
+Most research pulls the first lever. Some pulls the second. Almost none pulls the third — because it's the hardest. The system feels fixed. The tools feel like infrastructure, not something you'd train against.
+
+Our research pulls levers two and three together. The agent's weights improve through GRPO, grounded in actual task performance. And the system itself — the tools — evolves in parallel, rewritten by a Tool Architect that is itself learning from the outcomes it produces.
+
+The insight is simple but underexplored: the tools are part of the agent's capability, and they're just files. If you can measure how well they're working, you can improve them. Genesis is the environment that makes that measurement — and that improvement — possible every single cycle!
 
 ---
 
@@ -109,7 +122,8 @@ Or run everything in Colab: [`training/self_improve.ipynb`](training/self_improv
 
 ## Go Deeper
 
-- **[PROJECT.md](PROJECT.md)** — full design: reward formula, grader architecture, EMA weight tracking, Tool Architect prompt design
+- **[ENV_DESIGN.md](ENV_DESIGN.md)** — full environment design: episode lifecycle, action/observation schema, tool system, grading logic, EMA registry, Tool Architect, training pipeline
+- **[PROJECT.md](PROJECT.md)** — extended project spec: reward formula rationale, grader architecture, Tool Architect prompt design
 - **[reward_mechanism.md](reward_mechanism.md)** — how individual tool calls get scored
 - **[training/self_improve.ipynb](training/self_improve.ipynb)** — training notebook, runs on a T4
 
