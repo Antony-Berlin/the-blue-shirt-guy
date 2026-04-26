@@ -119,10 +119,9 @@ Every training run produces:
 
 The improvement is measured, logged, and plotted — not assumed. Some rewrites helped. Some didn't. The system handled both. That's the honest version of "showing improvement."
 
-> Training is currently running. Loss and reward plots will be embedded here once complete.
+![Self-Improvement Results](https://huggingface.co/spaces/berlin1906/genesis_env/resolve/main/training/outputs/self_improve_results.png)
 
-Training notebook with full visualisation code:
-
+- **[Full training log →](training/outputs/self-programing-output.txt)** — 11 cycles, raw loop output with per-cycle deltas and revert events
 - **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — reward curves, tool rewrite deltas, GRPO loss plots
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — complete environment design doc
 
