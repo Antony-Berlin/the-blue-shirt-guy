@@ -12,7 +12,7 @@ pinned: false
 
 ![freeGuy](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjZ6MDZ0OTE5d3A4dWd1bW91bTAwOTVkdGZ5NnNkZjh5Zms0aDRqdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/uuWEJYU9OETUxCSssd/giphy.gif)
 
-**[🚀 Live on HuggingFace Spaces](https://huggingface.co/spaces/berlin1906/genesis_env)** | **[📓 Training Notebook](training/genesis_training.ipynb)** | **[📐 Environment Design](ENV_DESIGN.md)**
+**[🚀 Live on HuggingFace Spaces](https://huggingface.co/spaces/berlin1906/genesis_env)** | **[📓 Training Notebook](training/Genesis_Env_Training.ipynb)** | **[📐 Environment Design](ENV_DESIGN.md)**
 
 ---
 
@@ -122,7 +122,7 @@ The improvement is measured, logged, and plotted — not assumed. Some rewrites 
 ![Self-Improvement Results](https://huggingface.co/spaces/berlin1906/genesis_env/resolve/main/training/outputs/self_improve_results.png)
 
 - **[Full training log →](training/outputs/self-programing-output.txt)** — 11 cycles, raw loop output with per-cycle deltas and revert events
-- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — reward curves, tool rewrite deltas, GRPO loss plots
+- **[training/Genesis_Env_Training.ipynb](training/Genesis_Env_Training.ipynb)** — reward curves, tool rewrite deltas, GRPO loss plots
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — complete environment design doc
 
 *(Run on a T4 GPU to reproduce.)*
@@ -142,7 +142,7 @@ python training/self_improve.py --cycles 3 --n 3            # tool evolution loo
 python training/combined_loop.py --cycles 3 --batch-size 4  # GRPO + tool evolution
 ```
 
-Or run everything in Colab: [`training/genesis_training.ipynb`](training/genesis_training.ipynb)
+Or run everything in Colab: [`training/Genesis_Env_Training.ipynb`](training/Genesis_Env_Training.ipynb)
 
 ---
 
@@ -151,7 +151,7 @@ Or run everything in Colab: [`training/genesis_training.ipynb`](training/genesis
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — full environment design: episode lifecycle, grading logic, EMA registry, Tool Architect, training pipeline
 - **[PROJECT.md](PROJECT.md)** — extended project spec: reward formula rationale, grader architecture, Tool Architect prompt design
 - **[reward_mechanism.md](reward_mechanism.md)** — how individual tool calls get scored
-- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — training notebook: self-improve, GRPO, combined loop with visualisations
+- **[training/Genesis_Env_Training.ipynb](training/Genesis_Env_Training.ipynb)** — training notebook: self-improve, GRPO, combined loop with visualisations
 
 ---
 
