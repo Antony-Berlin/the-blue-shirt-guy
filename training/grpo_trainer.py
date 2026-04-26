@@ -184,11 +184,12 @@ class GRPOTrainer:
         bnb_cfg = None
         if use_4bit:
             from transformers import BitsAndBytesConfig
+            _compute_dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
             bnb_cfg = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.float16,  # T4 supports fp16, not bf16
+                bnb_4bit_compute_dtype=_compute_dtype,
             )
 
         mode = "QLoRA 4-bit" if use_4bit else ("LoRA fp16" if self.cfg.use_lora else "fp16")
@@ -223,6 +224,7 @@ class GRPOTrainer:
         print("[GRPO] Model ready.", flush=True)
 
     def _make_trl_trainer(self, tasks: List[dict]):
+        import torch
         from trl import GRPOTrainer as TRLGRPOTrainer, GRPOConfig as TRLGRPOConfig
         from datasets import Dataset
 
@@ -251,7 +253,7 @@ class GRPOTrainer:
             per_device_train_batch_size=1,
             gradient_accumulation_steps=self.cfg.group_size,
             fp16=False,   # disable AMP scaler — avoids bf16/fp16 unscale errors
-            bf16=False,   # QLoRA base is 4-bit; LoRA adapters train in fp32
+            bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
             logging_steps=1,
             save_strategy="no",
             report_to="none",
