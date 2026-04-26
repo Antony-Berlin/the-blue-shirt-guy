@@ -10,7 +10,7 @@ uvicorn>=0.23.0
 fastmcp>=3.0.0
 
 # ── Agent tools ───────────────────────────────────────────────────────────────
-duckduckgo-search>=6.0.0
+ddgs>=6.0.0
 pyflakes>=3.0.0
 
 # ── Notebook (self_improve.ipynb) ─────────────────────────────────────────────
