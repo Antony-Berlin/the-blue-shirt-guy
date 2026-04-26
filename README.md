@@ -86,7 +86,7 @@ Two sequence-level adjustments also apply:
 
 ---
 
-## Why This Matters 🔬
+## Why This Is Different 🔬
 
 There are really only three levers for improving an agent:
 
@@ -96,31 +96,28 @@ There are really only three levers for improving an agent:
 
 Most research pulls the first lever. Some pulls the second. Almost none pulls the third — because it's the hardest. The system feels fixed. The tools feel like infrastructure, not something you'd train against.
 
-Our research pulls levers two and three together. The agent's weights improve through GRPO, grounded in actual task performance. And the system itself — the tools — evolves in parallel, rewritten by a Tool Architect that is itself learning from the outcomes it produces.
+Genesis pulls levers two and three together. The agent's weights improve through GRPO, grounded in actual task performance. And the system itself — the tools — evolves in parallel, rewritten by a Tool Architect that is itself learning from the outcomes it produces.
 
-The insight is simple but underexplored: the tools are part of the agent's capability, and they're just files. If you can measure how well they're working, you can improve them. Genesis is the environment that makes that measurement — and that improvement — possible every single cycle!
-
----
-
-## What the Judges Wanted — What We Built
-
-*We read the criteria. We took it personally.*
-
-**Environment Innovation (40%)** — Most self-improvement work fine-tunes the model and calls it a day. We went a layer deeper: the *tools themselves* evolve. An LLM called the Tool Architect rewrites underperforming tools based on real grades and natural language feedback from the environment. The environment doesn't just evaluate the agent — it generates the signal that lets the system rewrite itself. That's new.
-
-**Showing Improvement in Rewards (20%)** — We have reward curves. We have before/after deltas per tool rewrite. We have cycles where the rewrite made things worse and the system correctly reverted. The improvement is measured, logged, and plotted — not assumed.
-
-**Reward & Training Pipeline (10%)** — The reward formula is grounded in actual task outcomes. Tool quality is graded dynamically per output type — a search result is judged differently from a code block or an error explanation. GRPO training is wired directly to the environment's composite score. The pipeline is coherent end-to-end.
-
-**Storytelling & Presentation (30%)** — You're reading it. 🙂
+The insight is simple but underexplored: **the tools are part of the agent's capability, and they're just files.** If you can measure how well they're working, you can improve them. Genesis is the environment that makes that measurement — and that improvement — possible every single cycle.
 
 ---
 
-## Proof It Ran 📈
+## Did It Actually Work? 📈
 
-Training results from a real run — reward curves, tool rewrite deltas, GRPO loss:
+Yes. And we have the receipts.
 
-- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — full training notebook with live output and visualisation plots
+Every training run produces:
+
+- **Reward curves** — episode reward over time, showing the agent climbing
+- **Tool rewrite deltas** — before/after performance for each rewritten tool
+- **Revert events** — cycles where the rewrite made things worse and the system correctly rolled back
+- **GRPO loss** — weight update convergence across cycles
+
+The improvement is measured, logged, and plotted — not assumed. Some rewrites helped. Some didn't. The system handled both. That's the honest version of "showing improvement."
+
+Training results from a real run:
+
+- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — full notebook with live output, reward curves, and visualisation plots
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — complete environment design doc
 
 *(Reward plots are generated inline in the notebook. Run it on a T4 to reproduce.)*
