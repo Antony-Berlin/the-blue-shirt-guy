@@ -116,7 +116,7 @@ python training/self_improve.py --cycles 3 --n 3            # tool evolution loo
 python training/combined_loop.py --cycles 3 --batch-size 4  # GRPO + tool evolution
 ```
 
-Or run everything in Colab: [`training/self_improve.ipynb`](training/self_improve.ipynb)
+Or run everything in Colab: [`training/genesis_training.ipynb`](training/genesis_training.ipynb)
 
 ---
 
@@ -125,7 +125,7 @@ Or run everything in Colab: [`training/self_improve.ipynb`](training/self_improv
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — full environment design: episode lifecycle, action/observation schema, tool system, grading logic, EMA registry, Tool Architect, training pipeline
 - **[PROJECT.md](PROJECT.md)** — extended project spec: reward formula rationale, grader architecture, Tool Architect prompt design
 - **[reward_mechanism.md](reward_mechanism.md)** — how individual tool calls get scored
-- **[training/self_improve.ipynb](training/self_improve.ipynb)** — training notebook, runs on a T4
+- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — training notebook: self-improve, GRPO, combined loop with visualisations
 
 ---
 
