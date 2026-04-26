@@ -16,6 +16,10 @@ pinned: false
 
 ---
 
+**Contents:** [The Problem](#the-problem) · [Why This Is Different](#why-this-is-different-) · [How Genesis Works](#theres-a-reason-we-called-it-genesis) · [The Loop](#the-loop-) · [The Reward](#the-reward) · [Results](#did-it-actually-work-) · [Try It](#try-it) · [Go Deeper](#go-deeper)
+
+---
+
 You know that movie *Free Guy* — where an NPC wakes up, realises he's inside a game, and starts improving himself beyond what he was programmed to do?
 
 That's the one-line pitch. Except here the NPC is a coding agent, and instead of learning to fight, it learns to fix its own broken tools.
