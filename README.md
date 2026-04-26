@@ -44,7 +44,7 @@ On top of that, the agent's own LLM gets fine-tuned on benchmark tasks in parall
 ③ Tool Architect rewrites it
 ④ Agent re-evaluated → delta measured
 ⑤ delta > 0 → keep   |   delta < 0 → revert
-⑥ Tool Architect trained on that delta
+⑥ Both the Tool Architect and the agent LLM trained on that delta — Tool Architect learns to write better rewrites, agent LLM learns from the tool rewards
 ⑦ Repeat
 ```
 
