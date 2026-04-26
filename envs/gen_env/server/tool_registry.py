@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional
 
 
@@ -13,13 +14,20 @@ class ToolFlag(str, Enum):
 
 _EMA_ALPHA = 0.3  # smoothing factor; higher = more reactive to recent episodes
 
-TOOL_NAMES = [
-    "search_code_examples",
-    "run_tests",
-    "lint_code",
-    "fetch_docs",
-    "explain_error",
-]
+
+def _discover_tool_names() -> List[str]:
+    """Dynamically discover tool names from agent/tools/*.py files."""
+    tools_dir = Path(__file__).resolve().parents[3] / "agent" / "tools"
+    if not tools_dir.is_dir():
+        return []
+    return sorted(
+        p.stem
+        for p in tools_dir.glob("*.py")
+        if p.stem != "__init__"
+    )
+
+
+TOOL_NAMES = _discover_tool_names()
 
 
 @dataclass

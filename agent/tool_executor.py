@@ -56,6 +56,10 @@ class ToolExecutor:
     def __init__(self) -> None:
         self._log: List[Dict[str, Any]] = []
 
+    def available_tools(self) -> List[str]:
+        """Return the list of currently available tool names."""
+        return _discover_tools()
+
     def call(self, tool_name: str, **kwargs: Any) -> str:
         """Execute a tool and record the call in the log."""
         result_str: str

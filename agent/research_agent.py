@@ -23,28 +23,42 @@ from agent.tool_executor import ToolExecutor
 # Prompt templates
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = textwrap.dedent("""
-    You are a Python coding assistant solving programming challenges.
-    You have access to these tools:
-      - search_code_examples(query) — find similar code in a local corpus
-      - run_tests(code, test_cases) — run assert statements against your code
-      - lint_code(code) — check for syntax/style issues
-      - fetch_docs(library, symbol="") — get Python library documentation
-      - explain_error(traceback_text, code="") — diagnose an error traceback
+def _build_system_prompt() -> str:
+    """Build system prompt dynamically from discovered tools."""
+    from agent.tool_executor import _discover_tools, _load_tool
+    import inspect
 
-    Strategy:
-    1. Search for related examples first
-    2. Write your solution
-    3. Run tests to verify
-    4. Fix errors using explain_error and lint_code
-    5. Submit your final code
+    tool_lines = []
+    for name in _discover_tools():
+        try:
+            fn = _load_tool(name)
+            sig = inspect.signature(fn)
+            doc = (fn.__doc__ or "").strip().split("\n")[0]
+            tool_lines.append(f"  - {name}{sig} — {doc}")
+        except Exception:
+            tool_lines.append(f"  - {name}(...)")
 
-    When calling a tool, respond ONLY with JSON in this format:
-    {"action": "call_tool", "tool": "<name>", "args": {<kwargs>}}
+    tools_block = "\n".join(tool_lines)
+    return textwrap.dedent(f"""\
+        You are a Python coding assistant solving programming challenges.
+        You have access to these tools:
+        {tools_block}
 
-    When you have a final answer, respond with:
-    {"action": "submit", "code": "<your complete Python solution>"}
-""").strip()
+        Strategy:
+        1. Search / research the problem first
+        2. Write your solution
+        3. Run tests to verify
+        4. Fix errors using available diagnostic tools
+        5. Submit your final code
+
+        When calling a tool, respond ONLY with JSON in this format:
+        {{"action": "call_tool", "tool": "<name>", "args": {{<kwargs>}}}}
+
+        When you have a final answer, respond with:
+        {{"action": "submit", "code": "<your complete Python solution>"}}""").strip()
+
+
+_SYSTEM_PROMPT = _build_system_prompt()
 
 
 def _make_user_prompt(task_description: str, starter_code: str) -> str:
@@ -134,9 +148,13 @@ class ResearchAgent:
         starter_code = task.get("starter_code", "")
         task_id = task.get("task_id", "")
 
-        # Step 1: search for examples
+        # Step 1: search for examples (use web_search if available, else skip)
         query = " ".join(description.split()[:6])
-        self.executor.call("search_code_examples", query=query)
+        available = self.executor.available_tools()
+        if "web_search" in available:
+            self.executor.call("web_search", query=query)
+        elif "fetch_docs" in available:
+            self.executor.call("fetch_docs", library=query)
 
         # Step 2: attempt a simple heuristic solution based on starter_code
         fn_match = re.search(r"def (\w+)\(", starter_code)

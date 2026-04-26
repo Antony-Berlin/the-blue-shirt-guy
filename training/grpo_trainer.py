@@ -35,7 +35,7 @@ load_dotenv()
 
 @dataclass
 class GRPOConfig:
-    model_name: str = field(default_factory=lambda: os.getenv("MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct"))
+    model_name: str = field(default_factory=lambda: os.getenv("LOCAL_MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct"))
     output_dir: str = "checkpoints/grpo"
 
     # Training
