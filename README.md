@@ -30,6 +30,22 @@ That felt wrong to me. The ceiling is fixed not because the model is incapable �
 
 ---
 
+## Why This Is Different 🔬
+
+There are really only three levers for improving an agent:
+
+- **Adjust the prompt** — better instructions, better context, better examples
+- **Adjust the weights** — fine-tune the model on better data
+- **Adjust the system** — the architecture, the tools, the environment the agent operates in
+
+Most research pulls the first lever. Some pulls the second. Almost none pulls the third — because it's the hardest. The system feels fixed. The tools feel like infrastructure, not something you'd train against.
+
+Genesis pulls levers two and three together. The agent's weights improve through GRPO, grounded in actual task performance. And the system itself — the tools — evolves in parallel, rewritten by a Tool Architect that is itself learning from the outcomes it produces.
+
+The insight is simple but underexplored: **the tools are part of the agent's capability, and they're just files.** If you can measure how well they're working, you can improve them. Genesis is the environment that makes that measurement — and that improvement — possible every single cycle.
+
+---
+
 ## There's a reason we called it Genesis
 
 Genesis is the environment. Not what improves — what makes improvement possible.
@@ -83,22 +99,6 @@ Two sequence-level adjustments also apply:
 - **+0.2** bonus for calling `explain_error` after a failure — or **−0.4** for ignoring the error and retrying the same thing
 
 **Reasoning** is scored by an LLM judge — HuggingFace router first, Anthropic as fallback, heuristic if both are unavailable.
-
----
-
-## Why This Is Different 🔬
-
-There are really only three levers for improving an agent:
-
-- **Adjust the prompt** — better instructions, better context, better examples
-- **Adjust the weights** — fine-tune the model on better data
-- **Adjust the system** — the architecture, the tools, the environment the agent operates in
-
-Most research pulls the first lever. Some pulls the second. Almost none pulls the third — because it's the hardest. The system feels fixed. The tools feel like infrastructure, not something you'd train against.
-
-Genesis pulls levers two and three together. The agent's weights improve through GRPO, grounded in actual task performance. And the system itself — the tools — evolves in parallel, rewritten by a Tool Architect that is itself learning from the outcomes it produces.
-
-The insight is simple but underexplored: **the tools are part of the agent's capability, and they're just files.** If you can measure how well they're working, you can improve them. Genesis is the environment that makes that measurement — and that improvement — possible every single cycle.
 
 ---
 
