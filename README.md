@@ -12,6 +12,10 @@ pinned: false
 
 ![freeGuy](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjZ6MDZ0OTE5d3A4dWd1bW91bTAwOTVkdGZ5NnNkZjh5Zms0aDRqdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/uuWEJYU9OETUxCSssd/giphy.gif)
 
+**[🚀 Live on HuggingFace Spaces](https://huggingface.co/spaces/berlin1906/genesis_env)** | **[📓 Training Notebook](training/genesis_training.ipynb)** | **[📐 Environment Design](ENV_DESIGN.md)**
+
+---
+
 You know that movie *Free Guy* — where an NPC wakes up, realises he's inside a game, and starts improving himself beyond what he was programmed to do?
 
 That's the one-line pitch. Except here the NPC is a coding agent, and instead of learning to fight, it learns to fix its own broken tools.
@@ -115,12 +119,14 @@ Every training run produces:
 
 The improvement is measured, logged, and plotted — not assumed. Some rewrites helped. Some didn't. The system handled both. That's the honest version of "showing improvement."
 
-Training results from a real run:
+> Training is currently running. Loss and reward plots will be embedded here once complete.
 
-- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — full notebook with live output, reward curves, and visualisation plots
+Training notebook with full visualisation code:
+
+- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — reward curves, tool rewrite deltas, GRPO loss plots
 - **[ENV_DESIGN.md](ENV_DESIGN.md)** — complete environment design doc
 
-*(Reward plots are generated inline in the notebook. Run it on a T4 to reproduce.)*
+*(Run on a T4 GPU to reproduce.)*
 
 ---
 
