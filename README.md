@@ -16,15 +16,15 @@ That's the vibe here.
 
 ---
 
-## We called it Genesis for a reason
+## We called the environment Genesis for a reason
 
-Genesis is a coding agent that was born with five tools and told to go solve programming problems. The tools weren't great. One of them just dumps raw pydoc at you. Another explains errors using templates from 2004. The search tool has exactly 10 examples hardcoded into it.
+Genesis is the world the agent lives in. Like the movie — a game world that wasn't supposed to have self-aware NPCs. The agent is just the guy in the blue shirt, born with five tools and told to go solve programming problems. The tools weren't great. One of them just dumps raw pydoc at you. Another explains errors using templates from 2004. The search tool has exactly 10 examples hardcoded into it.
 
 A normal agent would just work around them. Ignore the bad ones. Develop habits. Get stuck at a ceiling.
 
-Genesis doesn't do that.
+This agent doesn't do that.
 
-Genesis looks at its own tools, figures out which ones are failing it, and **rewrites them**. Then it checks if the rewrite actually helped. If it didn't, it rolls back. If it did, it keeps the improvement — and learns to write better rewrites next time.
+It looks at its own tools, figures out which ones are failing it, and **rewrites them**. Then it checks if the rewrite actually helped. If it didn't, it rolls back. If it did, it keeps the improvement — and learns to write better rewrites next time.
 
 It gains consciousness the hard way. One tool at a time.
 
