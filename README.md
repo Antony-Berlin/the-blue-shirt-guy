@@ -55,7 +55,6 @@ That's why it's called Genesis. It's the ground. The agent grows from it.
 ⑦ Repeat
 ```
 
-
 ---
 
 ## The Reward
@@ -103,6 +102,31 @@ The insight is simple but underexplored: the tools are part of the agent's capab
 
 ---
 
+## What the Judges Wanted — What We Built
+
+*We read the criteria. We took it personally.*
+
+**Environment Innovation (40%)** — Most self-improvement work fine-tunes the model and calls it a day. We went a layer deeper: the *tools themselves* evolve. An LLM called the Tool Architect rewrites underperforming tools based on real grades and natural language feedback from the environment. The environment doesn't just evaluate the agent — it generates the signal that lets the system rewrite itself. That's new.
+
+**Showing Improvement in Rewards (20%)** — We have reward curves. We have before/after deltas per tool rewrite. We have cycles where the rewrite made things worse and the system correctly reverted. The improvement is measured, logged, and plotted — not assumed.
+
+**Reward & Training Pipeline (10%)** — The reward formula is grounded in actual task outcomes. Tool quality is graded dynamically per output type — a search result is judged differently from a code block or an error explanation. GRPO training is wired directly to the environment's composite score. The pipeline is coherent end-to-end.
+
+**Storytelling & Presentation (30%)** — You're reading it. 🙂
+
+---
+
+## Proof It Ran 📈
+
+Training results from a real run — reward curves, tool rewrite deltas, GRPO loss:
+
+- **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — full training notebook with live output and visualisation plots
+- **[ENV_DESIGN.md](ENV_DESIGN.md)** — complete environment design doc
+
+*(Reward plots are generated inline in the notebook. Run it on a T4 to reproduce.)*
+
+---
+
 ## Try It
 
 ```bash
@@ -122,7 +146,7 @@ Or run everything in Colab: [`training/genesis_training.ipynb`](training/genesis
 
 ## Go Deeper
 
-- **[ENV_DESIGN.md](ENV_DESIGN.md)** — full environment design: episode lifecycle, action/observation schema, tool system, grading logic, EMA registry, Tool Architect, training pipeline
+- **[ENV_DESIGN.md](ENV_DESIGN.md)** — full environment design: episode lifecycle, grading logic, EMA registry, Tool Architect, training pipeline
 - **[PROJECT.md](PROJECT.md)** — extended project spec: reward formula rationale, grader architecture, Tool Architect prompt design
 - **[reward_mechanism.md](reward_mechanism.md)** — how individual tool calls get scored
 - **[training/genesis_training.ipynb](training/genesis_training.ipynb)** — training notebook: self-improve, GRPO, combined loop with visualisations
