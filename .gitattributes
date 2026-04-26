@@ -1,1 +1,2 @@
 imgs/glasses-virtual-reality.gif filter=lfs diff=lfs merge=lfs -text
+training/outputs/self_improve_results.png filter=lfs diff=lfs merge=lfs -text
